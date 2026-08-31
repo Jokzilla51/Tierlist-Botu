@@ -720,7 +720,7 @@ async function handleAdminCommand(interaction) {
   if (!waitlistRole.editable) return interaction.editReply('Waitlist rolü bot rolünden yukarıda. Discord rol listesinde bot rolünü Waitlist rolünün üstüne taşı.');
 
   store.get().guildConfigs[interaction.guild.id] = {
-    waitlistPanelChannelId: waitlistPanelChannel?.id || null,
+    waitlistPanelChannelId: waitlistPanelChannel?.id || elytraWaitlistPanelChannel.id,
     elytraWaitlistPanelChannelId: elytraWaitlistPanelChannel.id,
     trapWaitlistPanelChannelId: trapWaitlistPanelChannel.id,
     testerPanelChannelId: testerPanelChannel.id,
