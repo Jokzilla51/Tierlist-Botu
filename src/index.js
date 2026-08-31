@@ -6,6 +6,12 @@ if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN tanımlı değil.
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const KITS = { elytra: 'Elytra', trap: 'Trap' };
 const PING_COOLDOWN_MS = 10 * 60 * 1000;
+const TEST_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
+const RANK_SHORT = {
+  'High Tier 1': 'HT1', 'Low Tier 1': 'LT1', 'High Tier 2': 'HT2', 'Low Tier 2': 'LT2',
+  'High Tier 3': 'HT3', 'Low Tier 3': 'LT3', 'High Tier 4': 'HT4', 'Low Tier 4': 'LT4',
+  'High Tier 5': 'HT5', 'Low Tier 5': 'LT5'
+};
 const SUPPORT_TYPES = {
   application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary, description: 'Sunucu ekibine başvuru yapmak için' },
   high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success, description: 'Tier testi için başvuru' },
@@ -22,6 +28,19 @@ function isStaff(member) {
 }
 function kitName(kit) { return KITS[kit]; }
 function queue(kit) { return store.get().queues[kit]; }
+function activeTests(kit) { return store.get().activeTests[kit]; }
+function cooldownEndsAt(kit, userId) { return (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS; }
+function tierRolePrefix(kit) { return kit === 'elytra' ? 'Ely' : 'Trap'; }
+function waitlistRole(guild) { return guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === 'waitlist üye'); }
+function isWaitingOrTesting(userId) {
+  return Object.keys(KITS).some((kit) => queue(kit).entries.some((entry) => entry.userId === userId) || activeTests(kit).some((entry) => entry.userId === userId));
+}
+function formatRemaining(ms) {
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const minutes = Math.max(1, Math.ceil((ms % 3600000) / 60000));
+  return `${days ? `${days} gün ` : ''}${hours ? `${hours} saat ` : ''}${minutes} dakika`;
+}
 function findChannel(guild, name) { return guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.isTextBased()); }
 function findCategory(guild, name) { return guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.type === ChannelType.GuildCategory); }
 function panel() {
@@ -119,14 +138,16 @@ async function handleCommand(interaction) {
     const kit = interaction.options.getString('kit'); const current = queue(kit);
     if (current.testerId !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: 'Bu kitin aktif testeri değilsin.', ephemeral: true });
     if (!current.testerId) return interaction.reply({ content: 'Önce bu kitin sırasını açmalısın.', ephemeral: true });
-    const next = current.entries.shift(); store.save();
+    const next = current.entries.shift();
     if (!next) return interaction.reply(`**${kitName(kit)}** sırasında bekleyen yok.`);
+    activeTests(kit).push({ ...next, testerId: interaction.user.id, calledAt: Date.now() });
+    store.save();
     return interaction.reply(`📣 <@${next.userId}>, **${kitName(kit)}** test sıran geldi!\nMinecraft adı: \`${next.minecraftName}\`${store.get().serverAddress ? `\nSunucu: \`${store.get().serverAddress}\`` : ''}${next.ticketId ? `\nTicket: <#${next.ticketId}>` : ''}`);
   }
 }
 async function status(interaction) {
   const s = store.get();
-  const lines = Object.keys(KITS).map((kit) => `**${kitName(kit)}:** ${queue(kit).testerId ? `Açık — <@${queue(kit).testerId}>` : 'Kapalı'} • ${queue(kit).entries.length} bekleyen`);
+  const lines = Object.keys(KITS).map((kit) => `**${kitName(kit)}:** ${queue(kit).testerId ? `Açık — <@${queue(kit).testerId}>` : 'Kapalı'} • ${queue(kit).entries.length} bekleyen • ${activeTests(kit).length} testte`);
   return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('Kuyruk Durumu').setDescription(lines.join('\n')).addFields({ name: 'Sunucu', value: s.serverAddress || 'Ayarlanmadı' })], ephemeral: true });
 }
 async function showJoinModal(interaction) {
@@ -137,15 +158,30 @@ async function showJoinModal(interaction) {
 async function showKitPicker(interaction) {
   const name = interaction.fields.getTextInputValue('name').trim();
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return interaction.reply({ content: 'Minecraft adı 3–16 karakter olmalı; yalnızca harf, rakam ve alt çizgi kullanabilirsin.', ephemeral: true });
-  const available = Object.keys(KITS).filter((kit) => queue(kit).testerId);
-  if (!available.length) return interaction.reply({ content: 'Şu an açık test sırası yok. Bir tester sıra açtığında tekrar deneyin.', ephemeral: true });
+  const openKits = Object.keys(KITS).filter((kit) => queue(kit).testerId);
+  if (!openKits.length) return interaction.reply({ content: 'Şu an açık test sırası yok. Bir tester sıra açtığında tekrar deneyin.', ephemeral: true });
+  const now = Date.now();
+  const available = openKits.filter((kit) => cooldownEndsAt(kit, interaction.user.id) <= now && !activeTests(kit).some((entry) => entry.userId === interaction.user.id));
+  if (!available.length) {
+    const activeKit = openKits.find((kit) => activeTests(kit).some((entry) => entry.userId === interaction.user.id));
+    if (activeKit) return interaction.reply({ content: `Şu an **${kitName(activeKit)}** testin devam ediyor. Sonuç girilmeden yeniden sıraya katılamazsın.`, ephemeral: true });
+    const nextExpiry = Math.min(...openKits.map((kit) => cooldownEndsAt(kit, interaction.user.id)).filter((time) => time > now));
+    return interaction.reply({ content: `Tekrar test için 5 günlük bekleme süren devam ediyor. Kalan süre: **${formatRemaining(nextExpiry - now)}**.`, ephemeral: true });
+  }
   const menu = new StringSelectMenuBuilder().setCustomId(`kit_pick:${name}`).setPlaceholder('Açık bir kit seç').addOptions(available.map((kit) => ({ label: kitName(kit), value: kit, description: `${queue(kit).entries.length} kişi bekliyor` })));
   return interaction.reply({ content: 'Test olmak istediğin kiti seç:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
 }
 async function addToQueue(interaction) {
   const minecraftName = interaction.customId.slice('kit_pick:'.length); const kit = interaction.values[0]; const current = queue(kit);
   if (!current.testerId) return interaction.update({ content: 'Bu sıra az önce kapandı. Lütfen daha sonra tekrar deneyin.', components: [] });
+  const remaining = cooldownEndsAt(kit, interaction.user.id) - Date.now();
+  if (remaining > 0) return interaction.update({ content: `Bu kitte tekrar test olabilmek için **${formatRemaining(remaining)}** daha beklemelisin.`, components: [] });
+  if (activeTests(kit).some((entry) => entry.userId === interaction.user.id)) return interaction.update({ content: `**${kitName(kit)}** testin zaten devam ediyor.`, components: [] });
   if (current.entries.some((entry) => entry.userId === interaction.user.id)) return interaction.update({ content: `Zaten **${kitName(kit)}** sırasındasın.`, components: [] });
+  const guildMember = await interaction.guild.members.fetch(interaction.user.id);
+  let role = waitlistRole(interaction.guild);
+  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Waitlist role was missing' });
+  await guildMember.roles.add(role, `${kitName(kit)} waitlist joined`);
   const ticketCategory = findCategory(interaction.guild, 'waitlist-ticketler');
   const ticket = await interaction.guild.channels.create({ name: `test-${kit}-${minecraftName}`.toLowerCase(), type: ChannelType.GuildText, parent: ticketCategory?.id, permissionOverwrites: ticketOverwrites(interaction.guild, interaction.user.id), topic: `Waitlist | ${kitName(kit)} | ${minecraftName} | ${interaction.user.id}` });
   current.entries.push({ userId: interaction.user.id, minecraftName, ticketId: ticket.id, joinedAt: Date.now() }); store.save();
@@ -207,13 +243,32 @@ async function closeTicket(interaction) {
 
 async function publishTestResult(interaction) {
   if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu komut yalnızca Tester rolü (veya Mesajları Yönet izni) olanlar içindir.', ephemeral: true });
+  await interaction.deferReply({ ephemeral: true });
   const minecraftName = interaction.options.getString('minecraft-adi').trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) return interaction.reply({ content: 'Geçerli bir Minecraft kullanıcı adı girin.', ephemeral: true });
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) return interaction.editReply('Geçerli bir Minecraft kullanıcı adı girin.');
   const kit = interaction.options.getString('kit');
   const previousRank = interaction.options.getString('onceki-rank');
   const earnedRank = interaction.options.getString('kazanilan-rank');
   const region = interaction.options.getString('bolge') || 'TR';
   const member = interaction.options.getUser('discord-uyesi');
+  const activeIndex = activeTests(kit).findIndex((entry) => entry.userId === member.id);
+  if (activeIndex === -1 && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    return interaction.editReply(`Bu üye aktif **${kitName(kit)}** testinde görünmüyor. Önce \`/next kit:${kitName(kit)}\` kullanın.`);
+  }
+  const guildMember = await interaction.guild.members.fetch(member.id);
+  const roleName = `${tierRolePrefix(kit)} ${RANK_SHORT[earnedRank]}`;
+  let earnedRole = interaction.guild.roles.cache.find((role) => role.name.toLowerCase() === roleName.toLowerCase());
+  if (!earnedRole) earnedRole = await interaction.guild.roles.create({ name: roleName, color: earnedRank.startsWith('High') ? 0xF1C40F : 0x95A5A6, reason: `${kitName(kit)} tier result` });
+  if (!earnedRole.editable) return interaction.editReply(`**${roleName}** rolü botun rolünden yukarıda. Bot rolünü bu tier rolünün üstüne taşıyın.`);
+  const oldTierRoles = guildMember.roles.cache.filter((role) => role.id !== earnedRole.id && new RegExp(`^${tierRolePrefix(kit)} (HT|LT)[1-5]$`, 'i').test(role.name));
+  if (oldTierRoles.size) await guildMember.roles.remove(oldTierRoles, `${kitName(kit)} tier updated`);
+  await guildMember.roles.add(earnedRole, `${kitName(kit)} test result: ${earnedRank}`);
+  if (activeIndex !== -1) activeTests(kit).splice(activeIndex, 1);
+  queue(kit).entries = queue(kit).entries.filter((entry) => entry.userId !== member.id);
+  store.get().cooldowns[kit][member.id] = Date.now();
+  store.save();
+  const waitingRole = waitlistRole(interaction.guild);
+  if (waitingRole && guildMember.roles.cache.has(waitingRole.id) && !isWaitingOrTesting(member.id)) await guildMember.roles.remove(waitingRole, 'Test completed');
   const requestedChannel = interaction.options.getChannel('kanal');
   const resultChannel = requestedChannel || findChannel(interaction.guild, `${kit}-sonuclari`) || findChannel(interaction.guild, 'test-sonuclari') || interaction.channel;
   const embed = new EmbedBuilder()
@@ -229,8 +284,9 @@ async function publishTestResult(interaction) {
     )
     .setFooter({ text: `[1.21+] MC ${kitName(kit)} • Yanlış atılan sonuçlar için destek talebi açın.` })
     .setTimestamp();
-  await resultChannel.send({ content: member ? `<@${member.id}>` : undefined, embeds: [embed] });
-  return interaction.reply({ content: `✅ Test sonucu <#${resultChannel.id}> kanalına gönderildi.`, ephemeral: true });
+  await resultChannel.send({ content: `<@${member.id}>`, embeds: [embed] });
+  const expiry = Math.floor((store.get().cooldowns[kit][member.id] + TEST_COOLDOWN_MS) / 1000);
+  return interaction.editReply(`✅ Sonuç <#${resultChannel.id}> kanalına gönderildi ve <@&${earnedRole.id}> rolü verildi. Bu üye <t:${expiry}:R> yeniden ${kitName(kit)} testine girebilir.`);
 }
 
 async function setupGuild(interaction) {
