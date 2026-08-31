@@ -69,3 +69,5 @@ Gerekli ortam değişkenleri:
 
 Kuyrukların, kurulum seçimlerinin ve 5 günlük sürelerin yeniden başlatmada korunması için Render Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` ayarlayın. Tokenı GitHub'a yüklemeyin.
 
+Bot, Render Web Service'in deploy kontrolü için `0.0.0.0:$PORT` üzerinde bir sağlık endpointi açar. `/health` isteği botun Discord'a bağlanıp bağlanmadığını JSON olarak gösterir. Render'da servis türü **Web Service**, build komutu `npm ci`, start komutu `npm start` olmalıdır.
+
