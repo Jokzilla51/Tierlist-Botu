@@ -26,9 +26,15 @@ const tierPrefix = (kit) => kit === 'elytra' ? 'Ely' : 'Trap';
 const findChannel = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.isTextBased());
 const findCategory = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.type === ChannelType.GuildCategory);
 const findRole = (guild, name) => guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === name.toLocaleLowerCase('tr-TR'));
-const findTesterRole = (guild) => [...guild.roles.cache.values()].filter((role) => !role.managed && /tester/i.test(role.name)).sort((a, b) => b.position - a.position)[0];
-const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /tester/i.test(role.name));
-const isStaff = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /(tester|destek|support|moderator|yetkili)/i.test(role.name));
+const guildConfig = (guildId) => store.get().guildConfigs[guildId] || null;
+const configuredChannel = (guild, key) => guild.channels.cache.get(guildConfig(guild.id)?.[key]);
+const configuredRole = (guild, key) => guild.roles.cache.get(guildConfig(guild.id)?.[key]);
+const isConfigured = (guild) => {
+  const config = guildConfig(guild.id);
+  return Boolean(config && ['waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId', 'testTicketCategoryId', 'supportTicketCategoryId', 'testerRoleId', 'waitlistRoleId'].every((key) => config[key]));
+};
+const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || Boolean(configuredRole(member.guild, 'testerRoleId') && member.roles.cache.has(guildConfig(member.guild.id).testerRoleId));
+const isStaff = (member) => isTester(member) || member.roles.cache.some((role) => /(destek|support|moderator|yetkili)/i.test(role.name));
 const cooldownEndsAt = (kit, userId) => (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS;
 const isWaitingOrTesting = (userId) => Object.keys(KITS).some((kit) => queue(kit).entries.some((entry) => entry.userId === userId) || activeTests(kit).some((entry) => entry.userId === userId));
 
@@ -83,7 +89,8 @@ function supportPanel() {
 
 function privateTicketPermissions(guild, userId, support = false) {
   const pattern = support ? /(tester|destek|support|moderator|yetkili)/i : /tester/i;
-  const roles = guild.roles.cache.filter((role) => pattern.test(role.name));
+  const configuredTester = configuredRole(guild, 'testerRoleId');
+  const roles = guild.roles.cache.filter((role) => pattern.test(role.name) || role.id === configuredTester?.id);
   return [
     { id: guild.roles.everyone.id, deny: ['ViewChannel'] },
     { id: userId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
@@ -110,32 +117,20 @@ async function ensurePanel(channel, customId, payload) {
 }
 
 async function refreshTesterPanel(guild) {
-  const channel = findChannel(guild, 'tester-panel');
+  const channel = configuredChannel(guild, 'testerPanelChannelId');
   if (channel) await ensurePanel(channel, 'queue_toggle:elytra', testerPanel());
 }
 
-async function ensureGuildSetup(guild) {
-  let testerRole = findTesterRole(guild);
-  if (!testerRole) testerRole = await guild.roles.create({ name: 'Tester', color: 0xF1C40F, reason: 'Automatic setup' });
-  if (!findRole(guild, 'Waitlist Üye')) await guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Automatic setup' });
-  if (!findCategory(guild, 'waitlist-ticketler')) await guild.channels.create({ name: 'WAITLIST-TICKETLER', type: ChannelType.GuildCategory });
-  if (!findCategory(guild, 'destek-talepleri')) await guild.channels.create({ name: 'DESTEK-TALEPLERİ', type: ChannelType.GuildCategory });
-
-  const botAllow = { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory'] };
-  const readOnly = [{ id: guild.roles.everyone.id, allow: ['ViewChannel', 'ReadMessageHistory'], deny: ['SendMessages'] }, botAllow];
-  const testerOnly = [{ id: guild.roles.everyone.id, deny: ['ViewChannel'] }, botAllow, { id: testerRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }];
-  const ensureText = async (name, permissions) => findChannel(guild, name) || guild.channels.create({ name, type: ChannelType.GuildText, permissionOverwrites: permissions });
-
-  await ensureText('waitlist-sira-bekleme', readOnly);
-  const join = await ensureText('waitlist-katil', readOnly);
-  await ensureText('test-sonuclari', readOnly);
-  const support = await ensureText('destek', readOnly);
-  const tester = await ensureText('tester-panel', testerOnly);
-  await tester.permissionOverwrites.edit(testerRole, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, { reason: 'Use existing tester role for panel access' });
-  await tester.permissionOverwrites.edit(guild.members.me, { ViewChannel: true, SendMessages: true, EmbedLinks: true, ReadMessageHistory: true }, { reason: 'Tierlist Bot panel access' });
-  await ensurePanel(join, 'join_waitlist', waitlistPanel());
-  await ensurePanel(support, 'support_create:application', supportPanel());
+async function deployConfiguredPanels(guild) {
+  const config = guildConfig(guild.id);
+  if (!config) throw new Error('Kurulum ayarları bulunamadı.');
+  const waitlist = configuredChannel(guild, 'waitlistPanelChannelId');
+  const tester = configuredChannel(guild, 'testerPanelChannelId');
+  const support = configuredChannel(guild, 'supportPanelChannelId');
+  if (!waitlist || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
+  await ensurePanel(waitlist, 'join_waitlist', waitlistPanel());
   await ensurePanel(tester, 'queue_toggle:elytra', testerPanel());
+  await ensurePanel(support, 'support_create:application', supportPanel());
 }
 
 function recoverMissingTestTickets(guild, kit) {
@@ -150,7 +145,7 @@ client.once(Events.ClientReady, async (ready) => {
   console.log(`${ready.user.tag} hazır.`);
   for (const guild of ready.guilds.cache.values()) {
     try {
-      await ensureGuildSetup(guild);
+      if (!isConfigured(guild)) continue;
       for (const kit of Object.keys(KITS)) {
         recoverMissingTestTickets(guild, kit);
         await advanceQueue(guild, kit);
@@ -158,10 +153,10 @@ client.once(Events.ClientReady, async (ready) => {
     } catch (error) { console.error(`${guild.name} kurulamadı:`, error); }
   }
 });
-client.on(Events.GuildCreate, (guild) => ensureGuildSetup(guild).catch(console.error));
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (interaction.isChatInputCommand()) return handleAdminCommand(interaction);
     if (interaction.isButton() && interaction.customId === 'join_waitlist') return showJoinModal(interaction);
     if (interaction.isButton() && interaction.customId === 'waitlist_role_toggle') return toggleWaitlistRole(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('queue_toggle:')) return toggleQueue(interaction);
@@ -184,10 +179,59 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+async function handleAdminCommand(interaction) {
+  if (interaction.commandName === 'sunucu-ayarla') {
+    store.get().serverAddress = interaction.options.getString('adres').trim();
+    store.save();
+    await refreshTesterPanel(interaction.guild);
+    return interaction.reply({ content: `✅ Sunucu adresi \`${store.get().serverAddress}\` olarak kaydedildi.`, ephemeral: true });
+  }
+  if (interaction.commandName === 'panelleri-yenile') {
+    await interaction.deferReply({ ephemeral: true });
+    if (!isConfigured(interaction.guild)) return interaction.editReply('Önce `/kurulum` komutunu kullanmalısın.');
+    await deployConfiguredPanels(interaction.guild);
+    return interaction.editReply('✅ Waitlist, tester ve destek panelleri yenilendi.');
+  }
+  if (interaction.commandName !== 'kurulum') return;
+  await interaction.deferReply({ ephemeral: true });
+  const waitlistPanelChannel = interaction.options.getChannel('waitlist-panel');
+  const testerPanelChannel = interaction.options.getChannel('tester-panel');
+  const supportPanelChannel = interaction.options.getChannel('destek-panel');
+  const announcementChannel = interaction.options.getChannel('duyuru-kanali');
+  const resultChannel = interaction.options.getChannel('sonuc-kanali');
+  const testTicketCategory = interaction.options.getChannel('test-ticket-kategorisi');
+  const supportTicketCategory = interaction.options.getChannel('destek-ticket-kategorisi');
+  const testerRole = interaction.options.getRole('tester-rolu');
+  const waitlistRole = interaction.options.getRole('waitlist-rolu');
+  if (!waitlistRole.editable) return interaction.editReply('Waitlist rolü bot rolünden yukarıda. Discord rol listesinde bot rolünü Waitlist rolünün üstüne taşı.');
+
+  store.get().guildConfigs[interaction.guild.id] = {
+    waitlistPanelChannelId: waitlistPanelChannel.id,
+    testerPanelChannelId: testerPanelChannel.id,
+    supportPanelChannelId: supportPanelChannel.id,
+    announcementChannelId: announcementChannel.id,
+    resultChannelId: resultChannel.id,
+    testTicketCategoryId: testTicketCategory.id,
+    supportTicketCategoryId: supportTicketCategory.id,
+    testerRoleId: testerRole.id,
+    waitlistRoleId: waitlistRole.id
+  };
+  store.save();
+
+  const botMember = interaction.guild.members.me;
+  for (const channel of [waitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel]) {
+    await channel.permissionOverwrites.edit(botMember, { ViewChannel: true, SendMessages: true, EmbedLinks: true, ReadMessageHistory: true }, { reason: 'Tierlist Bot setup' });
+  }
+  await testerPanelChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false }, { reason: 'Private tester panel' });
+  await testerPanelChannel.permissionOverwrites.edit(testerRole, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, { reason: 'Tester panel access' });
+  await deployConfiguredPanels(interaction.guild);
+  return interaction.editReply(`✅ Kurulum tamamlandı.\nWaitlist paneli: <#${waitlistPanelChannel.id}>\nTester paneli: <#${testerPanelChannel.id}>\nDestek paneli: <#${supportPanelChannel.id}>\nTest ticketları: **${testTicketCategory.name}**\nDestek ticketları: **${supportTicketCategory.name}**`);
+}
+
 async function toggleWaitlistRole(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  let role = findRole(interaction.guild, 'Waitlist Üye');
-  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287 });
+  const role = configuredRole(interaction.guild, 'waitlistRoleId');
+  if (!role) return interaction.reply({ content: 'Waitlist rolü ayarlanmamış. Bir yönetici `/kurulum` komutunu kullanmalı.', ephemeral: true });
   const subscribers = store.get().notificationSubscribers;
   if (subscribers.includes(member.id)) {
     store.get().notificationSubscribers = subscribers.filter((id) => id !== member.id);
@@ -202,6 +246,7 @@ async function toggleWaitlistRole(interaction) {
 }
 
 async function toggleQueue(interaction) {
+  if (!isConfigured(interaction.guild)) return interaction.reply({ content: 'Önce bir yönetici `/kurulum` komutunu kullanmalı.', ephemeral: true });
   if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu paneli yalnızca Tester rolü kullanabilir.', ephemeral: true });
   const kit = interaction.customId.split(':')[1];
   const current = queue(kit);
@@ -218,9 +263,9 @@ async function toggleQueue(interaction) {
   if (shouldPing) current.lastAnnouncementAt = now;
   store.save();
   await interaction.update(testerPanel());
-  const announcement = findChannel(interaction.guild, 'waitlist-sira-bekleme');
-  const join = findChannel(interaction.guild, 'waitlist-katil');
-  const role = findRole(interaction.guild, 'Waitlist Üye');
+  const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
+  const join = configuredChannel(interaction.guild, 'waitlistPanelChannelId');
+  const role = configuredRole(interaction.guild, 'waitlistRoleId');
   if (announcement) await announcement.send(`${shouldPing && role ? `<@&${role.id}>\n` : ''}🟢 **${kitName(kit)} sırası açıldı!**\nTester: <@${interaction.user.id}>\nSunucu: \`${store.get().serverAddress || 'Ayarlanmadı'}\`${join ? `\nKatılım: <#${join.id}>` : ''}`);
   const ticket = await advanceQueue(interaction.guild, kit);
   return interaction.followUp({ content: ticket ? `🟢 Sıra açıldı; ilk ticket: <#${ticket.id}>` : `🟢 ${kitName(kit)} sırası açıldı.`, ephemeral: true });
@@ -276,8 +321,8 @@ async function addToQueue(interaction) {
   if (current.entries.some((entry) => entry.userId === interaction.user.id)) return interaction.editReply({ content: `Zaten ${kitName(kit)} sırasındasın.`, components: [] });
 
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  let role = findRole(interaction.guild, 'Waitlist Üye');
-  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287 });
+  const role = configuredRole(interaction.guild, 'waitlistRoleId');
+  if (!role) return interaction.editReply({ content: 'Waitlist rolü bulunamadı. Yönetici `/kurulum` komutunu yeniden kullanmalı.', components: [] });
   await member.roles.add(role);
   current.entries.push({ userId: interaction.user.id, minecraftName, joinedAt: Date.now() });
   store.save();
@@ -290,6 +335,8 @@ async function addToQueue(interaction) {
 async function advanceQueue(guild, kit) {
   const current = queue(kit);
   if (!current.testerId || activeTests(kit).length || !current.entries.length) return null;
+  const ticketCategory = configuredChannel(guild, 'testTicketCategoryId');
+  if (!ticketCategory) throw new Error('Test ticket kategorisi bulunamadı. /kurulum komutunu yeniden kullanın.');
   const next = current.entries.shift();
   const active = { ...next, testerId: current.testerId, claimedBy: null, calledAt: Date.now(), ticketId: null };
   activeTests(kit).push(active);
@@ -297,7 +344,7 @@ async function advanceQueue(guild, kit) {
   try {
     const ticket = await guild.channels.create({
       name: `test-${kit}-${next.minecraftName}`.toLowerCase().slice(0, 100), type: ChannelType.GuildText,
-      parent: findCategory(guild, 'waitlist-ticketler')?.id, permissionOverwrites: privateTicketPermissions(guild, next.userId),
+      parent: ticketCategory.id, permissionOverwrites: privateTicketPermissions(guild, next.userId),
       topic: `TierTest | ${kit} | ${next.userId}`
     });
     active.ticketId = ticket.id;
@@ -356,7 +403,7 @@ async function finishTest(interaction) {
   activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
   store.get().cooldowns[kit][userId] = Date.now();
   store.save();
-  const waitlistRole = findRole(interaction.guild, 'Waitlist Üye');
+  const waitlistRole = configuredRole(interaction.guild, 'waitlistRoleId');
   if (waitlistRole && !store.get().notificationSubscribers.includes(userId) && !isWaitingOrTesting(userId)) await member.roles.remove(waitlistRole);
 
   const resultEmbed = new EmbedBuilder().setColor(0xF1E7C3).setTitle(`${active.minecraftName}'in Test Sonuçları 🏆`).addFields(
@@ -364,7 +411,7 @@ async function finishTest(interaction) {
     { name: 'Kullanıcı Adı', value: active.minecraftName }, { name: 'Önceki Rank', value: previousRank, inline: true },
     { name: 'Kazanılan Rank', value: earnedRank, inline: true }, { name: 'Verilen Rol', value: `<@&${earnedRole.id}>` }
   ).setFooter({ text: `[1.21+] MC ${kitName(kit)} • Yeniden test: 5 gün` }).setTimestamp();
-  const results = findChannel(interaction.guild, `${kit}-sonuclari`) || findChannel(interaction.guild, 'test-sonuclari');
+  const results = configuredChannel(interaction.guild, 'resultChannelId');
   if (results) await results.send({ content: `<@${userId}>`, embeds: [resultEmbed] });
   await interaction.editReply({ embeds: [resultEmbed], components: [] });
   await interaction.channel.send('✅ Sonuç ve rol kaydedildi. Ticket 10 saniye içinde kapanacak; sıradaki oyuncu otomatik çağrılıyor.');
@@ -395,7 +442,7 @@ async function removeTest(interaction) {
   activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
   store.save();
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
-  const role = findRole(interaction.guild, 'Waitlist Üye');
+  const role = configuredRole(interaction.guild, 'waitlistRoleId');
   if (member && role && !store.get().notificationSubscribers.includes(userId) && !isWaitingOrTesting(userId)) await member.roles.remove(role);
   await interaction.reply('✖️ Oyuncu testten çıkarıldı; sıradaki ticket açılıyor.');
   await refreshTesterPanel(interaction.guild);
@@ -421,9 +468,11 @@ async function createSupportTicket(interaction) {
   const type = SUPPORT_TYPES[key];
   const existing = interaction.guild.channels.cache.find((channel) => channel.topic?.startsWith(`Support | ${interaction.user.id} |`));
   if (existing) return interaction.editReply(`Zaten açık bir talebin var: <#${existing.id}>`);
+  const ticketCategory = configuredChannel(interaction.guild, 'supportTicketCategoryId');
+  if (!ticketCategory) return interaction.editReply('Destek ticket kategorisi bulunamadı. Bir yönetici `/kurulum` komutunu yeniden kullanmalı.');
   const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20) || interaction.user.id;
   const ticket = await interaction.guild.channels.create({
-    name: `${key}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: findCategory(interaction.guild, 'destek-talepleri')?.id,
+    name: `${key}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: ticketCategory.id,
     permissionOverwrites: privateTicketPermissions(interaction.guild, interaction.user.id, true), topic: `Support | ${interaction.user.id} | ${key}`
   });
   await ticket.send({ content: `<@${interaction.user.id}>`, embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle(`${type.emoji} ${type.label} Talebi`).addFields(
