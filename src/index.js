@@ -666,7 +666,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('test_result:')) return await finishTest(interaction);
   } catch (error) {
     console.error(error);
-    const response = { content: 'İşlem başarısız oldu. Botun kanal ve rol izinlerini kontrol edin.', ephemeral: true };
+    const response = { content: 'İşlem başarısız oldu: ' + String(error?.message || 'Bilinmeyen hata').slice(0, 1400), ephemeral: true };
     try {
       if (interaction.deferred && (interaction.isChatInputCommand() || interaction.isModalSubmit())) await interaction.editReply(response);
       else if (interaction.deferred || interaction.replied) await interaction.followUp(response);
@@ -719,6 +719,16 @@ async function handleAdminCommand(interaction) {
   if (!elytraWaitlistPanelChannel || !trapWaitlistPanelChannel || !elytraTesterRole || !trapTesterRole || !ticketStaffRole || !partnerStaffRole) return interaction.editReply('Elytra/Trap panel kanalları ve tüm yetkili rolleri zorunludur.');
   if (!waitlistRole.editable) return interaction.editReply('Waitlist rolü bot rolünden yukarıda. Discord rol listesinde bot rolünü Waitlist rolünün üstüne taşı.');
 
+  const botMember = interaction.guild.members.me;
+  const missingPermissions = [
+    ['Kanalları Yönet', PermissionFlagsBits.ManageChannels],
+    ['Rolleri Yönet', PermissionFlagsBits.ManageRoles],
+    ['Kanalları Görüntüle', PermissionFlagsBits.ViewChannel],
+    ['Mesaj Gönder', PermissionFlagsBits.SendMessages],
+    ['Bağlantı Yerleştir', PermissionFlagsBits.EmbedLinks]
+  ].filter(([, bit]) => !botMember.permissions.has(bit)).map(([name]) => name);
+  if (missingPermissions.length) return interaction.editReply('Bot rolünde şu izinler eksik: **' + missingPermissions.join(', ') + '**.');
+
   store.get().guildConfigs[interaction.guild.id] = {
     waitlistPanelChannelId: waitlistPanelChannel?.id || elytraWaitlistPanelChannel.id,
     elytraWaitlistPanelChannelId: elytraWaitlistPanelChannel.id,
@@ -739,7 +749,6 @@ async function handleAdminCommand(interaction) {
   };
   store.save();
 
-  const botMember = interaction.guild.members.me;
   for (const channel of new Set([waitlistPanelChannel, elytraWaitlistPanelChannel, trapWaitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel, auditLogChannel].filter(Boolean))) {
     await channel.permissionOverwrites.edit(botMember, { ViewChannel: true, SendMessages: true, EmbedLinks: true, AttachFiles: true, ReadMessageHistory: true }, { reason: 'Tierlist Bot setup' });
   }
