@@ -12,6 +12,15 @@ const RANKS = ['High Tier 1', 'Low Tier 1', 'High Tier 2', 'Low Tier 2', 'High T
 const RANK_SHORT = Object.fromEntries(RANKS.map((rank) => [rank, `${rank.startsWith('High') ? 'HT' : 'LT'}${rank.at(-1)}`]));
 const TEST_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
 const PING_COOLDOWN_MS = 10 * 60 * 1000;
+const CONFIG_SCHEMA = 'v1';
+const CONFIG_KEYS = [
+  'waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId',
+  'announcementChannelId', 'resultChannelId', 'testTicketCategoryId',
+  'supportTicketCategoryId', 'testerRoleId', 'waitlistRoleId'
+];
+const CONFIG_TEXT_CHANNEL_KEYS = ['waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId'];
+const CONFIG_CATEGORY_KEYS = ['testTicketCategoryId', 'supportTicketCategoryId'];
+const CONFIG_ROLE_KEYS = ['testerRoleId', 'waitlistRoleId'];
 const SUPPORT_TYPES = {
   application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary },
   high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success },
@@ -30,9 +39,15 @@ const findRole = (guild, name) => guild.roles.cache.find((role) => role.name.toL
 const guildConfig = (guildId) => store.get().guildConfigs[guildId] || null;
 const configuredChannel = (guild, key) => guild.channels.cache.get(guildConfig(guild.id)?.[key]);
 const configuredRole = (guild, key) => guild.roles.cache.get(guildConfig(guild.id)?.[key]);
+const configResourcesExist = (guild, config) => Boolean(
+  config &&
+  CONFIG_TEXT_CHANNEL_KEYS.every((key) => guild.channels.cache.get(config[key])?.isTextBased()) &&
+  CONFIG_CATEGORY_KEYS.every((key) => guild.channels.cache.get(config[key])?.type === ChannelType.GuildCategory) &&
+  CONFIG_ROLE_KEYS.every((key) => guild.roles.cache.has(config[key]))
+);
 const isConfigured = (guild) => {
   const config = guildConfig(guild.id);
-  return Boolean(config && ['waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId', 'testTicketCategoryId', 'supportTicketCategoryId', 'testerRoleId', 'waitlistRoleId'].every((key) => config[key]));
+  return Boolean(config && CONFIG_KEYS.every((key) => config[key]) && configResourcesExist(guild, config));
 };
 const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || Boolean(configuredRole(member.guild, 'testerRoleId') && member.roles.cache.has(guildConfig(member.guild.id).testerRoleId));
 const isStaff = (member) => isTester(member) || member.roles.cache.some((role) => /(destek|support|moderator|yetkili)/i.test(role.name));
@@ -83,7 +98,15 @@ function waitlistPanel() {
   };
 }
 
-function testerPanel() {
+function configButtonChunks(guildId) {
+  const config = guildConfig(guildId);
+  if (!guildId || !config || !CONFIG_KEYS.every((key) => config[key])) return ['', '', ''];
+  const payload = [CONFIG_SCHEMA, guildId, ...CONFIG_KEYS.map((key) => config[key])].join('|');
+  const chunkSize = Math.ceil(payload.length / 3);
+  return [payload.slice(0, chunkSize), payload.slice(chunkSize, chunkSize * 2), payload.slice(chunkSize * 2)];
+}
+
+function testerPanel(guildId) {
   const fields = Object.keys(KITS).map((kit) => {
     const current = queue(kit);
     const active = activeTests(kit)[0];
@@ -93,11 +116,12 @@ function testerPanel() {
       inline: true
     };
   });
+  const configChunks = configButtonChunks(guildId);
   return {
     embeds: [new EmbedBuilder().setColor(0xF1C40F).setTitle('🧪 Tester Kontrol Paneli').setDescription('Sıraları buradan yönet. Sonuç seçilince rol verilir ve sıradaki ticket otomatik açılır.').addFields(...fields, { name: 'Minecraft Sunucusu', value: store.get().serverAddress || 'Ayarlanmadı' }).setTimestamp()],
     components: [
-      new ActionRowBuilder().addComponents(...Object.keys(KITS).map((kit) => new ButtonBuilder().setCustomId(`queue_toggle:${kit}`).setLabel(`${kitName(kit)} ${queue(kit).testerId ? 'Kapat' : 'Aç'}`).setStyle(queue(kit).testerId ? ButtonStyle.Danger : ButtonStyle.Success))),
-      new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('server_address').setLabel('Sunucu Adresini Ayarla').setStyle(ButtonStyle.Secondary).setEmoji('⚙️'))
+      new ActionRowBuilder().addComponents(...Object.keys(KITS).map((kit, index) => new ButtonBuilder().setCustomId(`queue_toggle:${kit}${configChunks[index] ? `:cfg${index}:${configChunks[index]}` : ''}`).setLabel(`${kitName(kit)} ${queue(kit).testerId ? 'Kapat' : 'Aç'}`).setStyle(queue(kit).testerId ? ButtonStyle.Danger : ButtonStyle.Success))),
+      new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`server_address${configChunks[2] ? `:cfg2:${configChunks[2]}` : ''}`).setLabel('Sunucu Adresini Ayarla').setStyle(ButtonStyle.Secondary).setEmoji('⚙️'))
     ]
   };
 }
@@ -141,13 +165,61 @@ function testControls(kit, userId, claimedBy = null) {
 async function ensurePanel(channel, customId, payload) {
   const acceptedIds = Array.isArray(customId) ? customId : [customId];
   const messages = await channel.messages.fetch({ limit: 50 });
-  const existing = messages.find((message) => message.author.id === client.user.id && message.components.some((row) => row.components.some((component) => acceptedIds.includes(component.customId))));
+  const existing = messages.find((message) => message.author.id === client.user.id && message.components.some((row) => row.components.some((component) => acceptedIds.some((id) => component.customId === id || component.customId?.startsWith(`${id}:`)))));
   return existing ? existing.edit(payload) : channel.send(payload);
+}
+
+function parseConfigFromPanel(message, guild) {
+  if (message.author.id !== client.user.id) return null;
+  const customIds = message.components.flatMap((row) => row.components.map((component) => component.customId).filter(Boolean));
+  const prefixes = ['queue_toggle:elytra:cfg0:', 'queue_toggle:trap:cfg1:', 'server_address:cfg2:'];
+  const chunks = prefixes.map((prefix) => customIds.find((id) => id.startsWith(prefix))?.slice(prefix.length));
+  if (chunks.some((chunk) => !chunk)) return null;
+  const values = chunks.join('').split('|');
+  if (values.length !== CONFIG_KEYS.length + 2 || values[0] !== CONFIG_SCHEMA || values[1] !== guild.id) return null;
+  const ids = values.slice(2);
+  if (!ids.every((id) => /^\d{15,20}$/.test(id))) return null;
+  const config = Object.fromEntries(CONFIG_KEYS.map((key, index) => [key, ids[index]]));
+  if (config.testerPanelChannelId !== message.channelId) return null;
+  if (!configResourcesExist(guild, config)) return null;
+  const serverAddressField = message.embeds.flatMap((embed) => embed.fields).find((field) => field.name === 'Minecraft Sunucusu');
+  const serverAddress = serverAddressField?.value?.trim();
+  return { config, serverAddress: serverAddress && serverAddress !== 'Ayarlanmadı' ? serverAddress : null };
+}
+
+async function recoverGuildConfig(guild) {
+  const channels = [...guild.channels.cache.values()]
+    .filter((channel) => channel.isTextBased() && channel.messages?.fetch)
+    .sort((left, right) => Number(/tester|panel/i.test(right.name)) - Number(/tester|panel/i.test(left.name)));
+  let newest = null;
+  for (const channel of channels) {
+    try {
+      const messageGroups = [];
+      if (channel.messages.fetchPinned) messageGroups.push(await channel.messages.fetchPinned());
+      messageGroups.push(await channel.messages.fetch({ limit: 100 }));
+      for (const messages of messageGroups) {
+        for (const message of messages.values()) {
+          const backup = parseConfigFromPanel(message, guild);
+          if (backup && (!newest || (message.editedTimestamp || message.createdTimestamp) > newest.timestamp)) {
+            newest = { ...backup, timestamp: message.editedTimestamp || message.createdTimestamp };
+          }
+        }
+      }
+    } catch (error) {
+      if (error.code !== 50001 && error.code !== 50013) console.warn(`${channel.name} kanalında kurulum yedeği aranamadı:`, error.message);
+    }
+  }
+  if (!newest) return false;
+  store.get().guildConfigs[guild.id] = newest.config;
+  if (!store.get().serverAddress && newest.serverAddress) store.get().serverAddress = newest.serverAddress;
+  store.save();
+  console.log(`${guild.name} kurulum ayarları tester panelinden geri yüklendi.`);
+  return true;
 }
 
 async function refreshTesterPanel(guild) {
   const channel = configuredChannel(guild, 'testerPanelChannelId');
-  if (channel) await ensurePanel(channel, 'queue_toggle:elytra', testerPanel());
+  if (channel) await ensurePanel(channel, 'queue_toggle:elytra', testerPanel(guild.id));
 }
 
 async function refreshWaitlistPanel(guild) {
@@ -163,8 +235,18 @@ async function deployConfiguredPanels(guild) {
   const support = configuredChannel(guild, 'supportPanelChannelId');
   if (!waitlist || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
   await ensurePanel(waitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
-  await ensurePanel(tester, 'queue_toggle:elytra', testerPanel());
+  const testerMessage = await ensurePanel(tester, 'queue_toggle:elytra', testerPanel(guild.id));
+  let configPinned = testerMessage.pinned;
+  if (!configPinned) {
+    try {
+      await testerMessage.pin('Kurulum yedeğini koru');
+      configPinned = true;
+    } catch (error) {
+      console.warn('Tester paneli sabitlenemedi; son 100 mesajdan kurtarma kullanılacak:', error.message);
+    }
+  }
   await ensurePanel(support, 'support_create:application', supportPanel());
+  return { configPinned };
 }
 
 function recoverMissingTestTickets(guild, kit) {
@@ -179,7 +261,7 @@ client.once(Events.ClientReady, async (ready) => {
   console.log(`${ready.user.tag} hazır.`);
   for (const guild of ready.guilds.cache.values()) {
     try {
-      if (!isConfigured(guild)) continue;
+      if (!isConfigured(guild) && !await recoverGuildConfig(guild)) continue;
       await deployConfiguredPanels(guild);
       for (const kit of Object.keys(KITS)) {
         recoverMissingTestTickets(guild, kit);
@@ -198,7 +280,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'waitlist_leave') return leaveWaitlist(interaction);
     if (interaction.isButton() && interaction.customId === 'waitlist_role_toggle') return toggleWaitlistRole(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('queue_toggle:')) return toggleQueue(interaction);
-    if (interaction.isButton() && interaction.customId === 'server_address') return showServerModal(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('server_address')) return showServerModal(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('test_claim:')) return claimTest(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('test_skip:')) return skipTest(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('test_remove:')) return removeTest(interaction);
@@ -262,8 +344,10 @@ async function handleAdminCommand(interaction) {
   }
   await testerPanelChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false }, { reason: 'Private tester panel' });
   await testerPanelChannel.permissionOverwrites.edit(testerRole, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, { reason: 'Tester panel access' });
-  await deployConfiguredPanels(interaction.guild);
-  return interaction.editReply(`✅ Kurulum tamamlandı.\nWaitlist paneli: <#${waitlistPanelChannel.id}>\nTester paneli: <#${testerPanelChannel.id}>\nDestek paneli: <#${supportPanelChannel.id}>\nTest ticketları: **${testTicketCategory.name}**\nDestek ticketları: **${supportTicketCategory.name}**`);
+  await testerPanelChannel.permissionOverwrites.edit(botMember, { ManageMessages: true }, { reason: 'Keep Tierlist setup backup pinned' }).catch((error) => console.warn('Tester panelinde Mesajları Yönet izni verilemedi:', error.message));
+  const { configPinned } = await deployConfiguredPanels(interaction.guild);
+  const backupStatus = configPinned ? 'Kurulum yeniden deploylar için yedeklendi.' : '⚠️ Yedeğin kalıcı kalması için botta **Mesajları Yönet** iznini açın.';
+  return interaction.editReply(`✅ Kurulum tamamlandı. ${backupStatus}\nWaitlist paneli: <#${waitlistPanelChannel.id}>\nTester paneli: <#${testerPanelChannel.id}>\nDestek paneli: <#${supportPanelChannel.id}>\nTest ticketları: **${testTicketCategory.name}**\nDestek ticketları: **${supportTicketCategory.name}**`);
 }
 
 async function toggleWaitlistRole(interaction) {
@@ -292,7 +376,7 @@ async function toggleQueue(interaction) {
     if (current.testerId !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: `Sırayı <@${current.testerId}> yönetiyor.`, ephemeral: true });
     current.testerId = null;
     store.save();
-    await interaction.update(testerPanel());
+    await interaction.update(testerPanel(interaction.guild.id));
     await refreshWaitlistPanel(interaction.guild);
     return interaction.followUp({ content: `🔴 ${kitName(kit)} sırası kapatıldı. Aktif test tamamlanabilir.`, ephemeral: true });
   }
@@ -301,7 +385,7 @@ async function toggleQueue(interaction) {
   const shouldPing = now - current.lastAnnouncementAt >= PING_COOLDOWN_MS;
   if (shouldPing) current.lastAnnouncementAt = now;
   store.save();
-  await interaction.update(testerPanel());
+  await interaction.update(testerPanel(interaction.guild.id));
   await refreshWaitlistPanel(interaction.guild);
   const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
   const join = configuredChannel(interaction.guild, 'waitlistPanelChannelId');
