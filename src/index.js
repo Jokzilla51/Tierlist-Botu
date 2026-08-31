@@ -1,322 +1,453 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
+const {
+  Client, GatewayIntentBits, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits
+} = require('discord.js');
 const store = require('./storage');
 
-if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN tanımlı değil.');
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 const KITS = { elytra: 'Elytra', trap: 'Trap' };
-const PING_COOLDOWN_MS = 10 * 60 * 1000;
+const RANKS = ['High Tier 1', 'Low Tier 1', 'High Tier 2', 'Low Tier 2', 'High Tier 3', 'Low Tier 3', 'High Tier 4', 'Low Tier 4', 'High Tier 5', 'Low Tier 5'];
+const RANK_SHORT = Object.fromEntries(RANKS.map((rank) => [rank, `${rank.startsWith('High') ? 'HT' : 'LT'}${rank.at(-1)}`]));
 const TEST_COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000;
-const RANK_SHORT = {
-  'High Tier 1': 'HT1', 'Low Tier 1': 'LT1', 'High Tier 2': 'HT2', 'Low Tier 2': 'LT2',
-  'High Tier 3': 'HT3', 'Low Tier 3': 'LT3', 'High Tier 4': 'HT4', 'Low Tier 4': 'LT4',
-  'High Tier 5': 'HT5', 'Low Tier 5': 'LT5'
-};
+const PING_COOLDOWN_MS = 10 * 60 * 1000;
 const SUPPORT_TYPES = {
-  application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary, description: 'Sunucu ekibine başvuru yapmak için' },
-  high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success, description: 'Tier testi için başvuru' },
-  complaint: { label: 'Şikayet', emoji: '📢', style: ButtonStyle.Danger, description: 'Şikayet ve bildirimler için' },
-  partnership: { label: 'Reklam - Partnerlik', emoji: '🤝', style: ButtonStyle.Secondary, description: 'Reklam ve ortaklık teklifleri' },
-  other: { label: 'Diğer', emoji: '❓', style: ButtonStyle.Secondary, description: 'Diğer konular için' }
+  application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary },
+  high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success },
+  complaint: { label: 'Şikayet', emoji: '📢', style: ButtonStyle.Danger },
+  partnership: { label: 'Reklam - Partnerlik', emoji: '🤝', style: ButtonStyle.Secondary },
+  other: { label: 'Diğer', emoji: '❓', style: ButtonStyle.Secondary }
 };
 
-function isTester(member) {
-  return member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /tester/i.test(role.name));
-}
-function isStaff(member) {
-  return member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /(tester|destek|support|moderator|yetkili)/i.test(role.name));
-}
-function kitName(kit) { return KITS[kit]; }
-function queue(kit) { return store.get().queues[kit]; }
-function activeTests(kit) { return store.get().activeTests[kit]; }
-function cooldownEndsAt(kit, userId) { return (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS; }
-function tierRolePrefix(kit) { return kit === 'elytra' ? 'Ely' : 'Trap'; }
-function waitlistRole(guild) { return guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === 'waitlist üye'); }
-function isWaitingOrTesting(userId) {
-  return Object.keys(KITS).some((kit) => queue(kit).entries.some((entry) => entry.userId === userId) || activeTests(kit).some((entry) => entry.userId === userId));
-}
+const queue = (kit) => store.get().queues[kit];
+const activeTests = (kit) => store.get().activeTests[kit];
+const kitName = (kit) => KITS[kit];
+const tierPrefix = (kit) => kit === 'elytra' ? 'Ely' : 'Trap';
+const findChannel = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.isTextBased());
+const findCategory = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.type === ChannelType.GuildCategory);
+const findRole = (guild, name) => guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === name.toLocaleLowerCase('tr-TR'));
+const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /tester/i.test(role.name));
+const isStaff = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /(tester|destek|support|moderator|yetkili)/i.test(role.name));
+const cooldownEndsAt = (kit, userId) => (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS;
+const isWaitingOrTesting = (userId) => Object.keys(KITS).some((kit) => queue(kit).entries.some((entry) => entry.userId === userId) || activeTests(kit).some((entry) => entry.userId === userId));
+
 function formatRemaining(ms) {
   const days = Math.floor(ms / 86400000);
   const hours = Math.floor((ms % 86400000) / 3600000);
-  const minutes = Math.max(1, Math.ceil((ms % 3600000) / 60000));
-  return `${days ? `${days} gün ` : ''}${hours ? `${hours} saat ` : ''}${minutes} dakika`;
+  const minutes = Math.ceil((ms % 3600000) / 60000);
+  return [days && `${days} gün`, hours && `${hours} saat`, minutes && `${minutes} dakika`].filter(Boolean).join(' ') || '1 dakikadan az';
 }
-function findChannel(guild, name) { return guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.isTextBased()); }
-function findCategory(guild, name) { return guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.type === ChannelType.GuildCategory); }
-function panel() {
+
+function waitlistPanel() {
   return {
-    embeds: [new EmbedBuilder().setColor(0x57F287).setTitle('Waitlist Katılım').setDescription('Minecraft adını girip test olmak istediğin kiti seçerek sıraya katıl. Sıra yalnızca aktif tester varken açıktır.')],
-    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('join_waitlist').setLabel('Sıraya Katıl').setStyle(ButtonStyle.Success).setEmoji('📝'))]
+    embeds: [new EmbedBuilder().setColor(0x57F287).setTitle('📝 Tierlist Test Sırası').setDescription('Minecraft adını girip açık olan **Elytra** veya **Trap** sırasına katıl. Sıran geldiğinde özel test ticketın otomatik açılır.').setFooter({ text: 'Sonuçtan sonra aynı kit için 5 gün bekleme süresi vardır.' })],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('join_waitlist').setLabel('Sıraya Katıl').setStyle(ButtonStyle.Success).setEmoji('📝'),
+      new ButtonBuilder().setCustomId('waitlist_role_toggle').setLabel('Bildirim Rolü Al / Bırak').setStyle(ButtonStyle.Secondary).setEmoji('🔔')
+    )]
   };
 }
+
+function testerPanel() {
+  const fields = Object.keys(KITS).map((kit) => {
+    const current = queue(kit);
+    const active = activeTests(kit)[0];
+    return {
+      name: `${current.testerId ? '🟢' : '🔴'} ${kitName(kit)}`,
+      value: `${current.testerId ? `Açık • <@${current.testerId}>` : 'Kapalı'}\nBekleyen: **${current.entries.length}**\nAktif test: ${active ? `<@${active.userId}>` : 'Yok'}`,
+      inline: true
+    };
+  });
+  return {
+    embeds: [new EmbedBuilder().setColor(0xF1C40F).setTitle('🧪 Tester Kontrol Paneli').setDescription('Sıraları buradan yönet. Sonuç seçilince rol verilir ve sıradaki ticket otomatik açılır.').addFields(...fields, { name: 'Minecraft Sunucusu', value: store.get().serverAddress || 'Ayarlanmadı' }).setTimestamp()],
+    components: [
+      new ActionRowBuilder().addComponents(...Object.keys(KITS).map((kit) => new ButtonBuilder().setCustomId(`queue_toggle:${kit}`).setLabel(`${kitName(kit)} ${queue(kit).testerId ? 'Kapat' : 'Aç'}`).setStyle(queue(kit).testerId ? ButtonStyle.Danger : ButtonStyle.Success))),
+      new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('server_address').setLabel('Sunucu Adresini Ayarla').setStyle(ButtonStyle.Secondary).setEmoji('⚙️'))
+    ]
+  };
+}
+
 function supportPanel() {
-  const lines = Object.values(SUPPORT_TYPES).map((type) => `${type.emoji} **${type.label}**\n${type.description}`).join('\n\n');
+  const descriptions = {
+    application: 'Sunucu ekibine başvuru', high_test: 'Tier testiyle ilgili başvuru', complaint: 'Şikayet ve bildirim',
+    partnership: 'Reklam ve ortaklık teklifi', other: 'Diğer konular'
+  };
+  const lines = Object.entries(SUPPORT_TYPES).map(([key, type]) => `${type.emoji} **${type.label}**\n${descriptions[key]}`).join('\n\n');
   const buttons = Object.entries(SUPPORT_TYPES).map(([key, type]) => new ButtonBuilder().setCustomId(`support_create:${key}`).setLabel(type.label).setStyle(type.style).setEmoji(type.emoji));
   return {
-    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎟️ Destek Sistemi').setDescription(`Aşağıdaki kategorilerden birini seçerek destek talebi oluşturabilirsiniz.\n\n${lines}`).setFooter({ text: 'Tierlist Bot • Destek Sistemi' }).setTimestamp()],
+    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎟️ Destek Sistemi').setDescription(`Bir kategori seçerek destek talebi oluşturabilirsin.\n\n${lines}`).setTimestamp()],
     components: [new ActionRowBuilder().addComponents(buttons.slice(0, 3)), new ActionRowBuilder().addComponents(buttons.slice(3))]
   };
 }
-function ticketOverwrites(guild, userId, mode = 'test') {
-  const pattern = mode === 'support' ? /(tester|destek|support|moderator|yetkili)/i : /tester/i;
-  const staffRoles = guild.roles.cache.filter((role) => pattern.test(role.name));
+
+function privateTicketPermissions(guild, userId, support = false) {
+  const pattern = support ? /(tester|destek|support|moderator|yetkili)/i : /tester/i;
+  const roles = guild.roles.cache.filter((role) => pattern.test(role.name));
   return [
     { id: guild.roles.everyone.id, deny: ['ViewChannel'] },
     { id: userId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
     { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'ManageChannels', 'ReadMessageHistory'] },
-    ...staffRoles.map((role) => ({ id: role.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }))
+    ...roles.map((role) => ({ id: role.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }))
   ];
 }
 
-function ticketControls() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ticket_claim').setLabel('Talebi Sahiplen').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
-    new ButtonBuilder().setCustomId('ticket_close').setLabel('Talebi Kapat').setStyle(ButtonStyle.Danger).setEmoji('🔒')
-  );
+function testControls(kit, userId, claimedBy = null) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`test_claim:${kit}:${userId}`).setLabel(claimedBy ? 'Sahiplenildi' : 'Testi Sahiplen').setStyle(ButtonStyle.Primary).setEmoji('🙋').setDisabled(Boolean(claimedBy)),
+      new ButtonBuilder().setCustomId(`test_skip:${kit}:${userId}`).setLabel('Sona At').setStyle(ButtonStyle.Secondary).setEmoji('⏭️'),
+      new ButtonBuilder().setCustomId(`test_remove:${kit}:${userId}`).setLabel('Testten Çıkar').setStyle(ButtonStyle.Danger).setEmoji('✖️')
+    ),
+    new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`test_result:${kit}:${userId}`).setPlaceholder(claimedBy ? 'Kazanılan tieri seç' : 'Önce testi sahiplen').setDisabled(!claimedBy).addOptions(RANKS.map((rank) => ({ label: rank, value: rank, description: `${tierPrefix(kit)} ${RANK_SHORT[rank]} rolü verilir` }))))
+  ];
 }
 
-client.once(Events.ClientReady, (ready) => console.log(`${ready.user.tag} hazır.`));
+async function ensurePanel(channel, customId, payload) {
+  const messages = await channel.messages.fetch({ limit: 50 });
+  const existing = messages.find((message) => message.author.id === client.user.id && message.components.some((row) => row.components.some((component) => component.customId === customId)));
+  return existing ? existing.edit(payload) : channel.send(payload);
+}
+
+async function refreshTesterPanel(guild) {
+  const channel = findChannel(guild, 'tester-panel');
+  if (channel) await ensurePanel(channel, 'queue_toggle:elytra', testerPanel());
+}
+
+async function ensureGuildSetup(guild) {
+  let testerRole = findRole(guild, 'Tester');
+  if (!testerRole) testerRole = await guild.roles.create({ name: 'Tester', color: 0xF1C40F, reason: 'Automatic setup' });
+  if (!findRole(guild, 'Waitlist Üye')) await guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Automatic setup' });
+  if (!findCategory(guild, 'waitlist-ticketler')) await guild.channels.create({ name: 'WAITLIST-TICKETLER', type: ChannelType.GuildCategory });
+  if (!findCategory(guild, 'destek-talepleri')) await guild.channels.create({ name: 'DESTEK-TALEPLERİ', type: ChannelType.GuildCategory });
+
+  const botAllow = { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory'] };
+  const readOnly = [{ id: guild.roles.everyone.id, allow: ['ViewChannel', 'ReadMessageHistory'], deny: ['SendMessages'] }, botAllow];
+  const testerOnly = [{ id: guild.roles.everyone.id, deny: ['ViewChannel'] }, botAllow, { id: testerRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }];
+  const ensureText = async (name, permissions) => findChannel(guild, name) || guild.channels.create({ name, type: ChannelType.GuildText, permissionOverwrites: permissions });
+
+  await ensureText('waitlist-sira-bekleme', readOnly);
+  const join = await ensureText('waitlist-katil', readOnly);
+  await ensureText('test-sonuclari', readOnly);
+  const support = await ensureText('destek', readOnly);
+  const tester = await ensureText('tester-panel', testerOnly);
+  await ensurePanel(join, 'join_waitlist', waitlistPanel());
+  await ensurePanel(support, 'support_create:application', supportPanel());
+  await ensurePanel(tester, 'queue_toggle:elytra', testerPanel());
+}
+
+function recoverMissingTestTickets(guild, kit) {
+  const missing = activeTests(kit).filter((active) => !active.ticketId || !guild.channels.cache.has(active.ticketId));
+  if (!missing.length) return;
+  store.get().activeTests[kit] = activeTests(kit).filter((active) => !missing.includes(active));
+  queue(kit).entries.unshift(...missing.map((active) => ({ userId: active.userId, minecraftName: active.minecraftName, joinedAt: active.joinedAt })));
+  store.save();
+}
+
+client.once(Events.ClientReady, async (ready) => {
+  console.log(`${ready.user.tag} hazır.`);
+  for (const guild of ready.guilds.cache.values()) {
+    try {
+      await ensureGuildSetup(guild);
+      for (const kit of Object.keys(KITS)) {
+        recoverMissingTestTickets(guild, kit);
+        await advanceQueue(guild, kit);
+      }
+    } catch (error) { console.error(`${guild.name} kurulamadı:`, error); }
+  }
+});
+client.on(Events.GuildCreate, (guild) => ensureGuildSetup(guild).catch(console.error));
+
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (interaction.isChatInputCommand()) return handleCommand(interaction);
     if (interaction.isButton() && interaction.customId === 'join_waitlist') return showJoinModal(interaction);
+    if (interaction.isButton() && interaction.customId === 'waitlist_role_toggle') return toggleWaitlistRole(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('queue_toggle:')) return toggleQueue(interaction);
+    if (interaction.isButton() && interaction.customId === 'server_address') return showServerModal(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('test_claim:')) return claimTest(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('test_skip:')) return skipTest(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('test_remove:')) return removeTest(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('support_create:')) return showSupportModal(interaction);
-    if (interaction.isButton() && interaction.customId === 'ticket_claim') return claimTicket(interaction);
-    if (interaction.isButton() && interaction.customId === 'ticket_close') return closeTicket(interaction);
+    if (interaction.isButton() && interaction.customId === 'support_claim') return claimSupport(interaction);
+    if (interaction.isButton() && interaction.customId === 'support_close') return closeSupport(interaction);
     if (interaction.isModalSubmit() && interaction.customId === 'minecraft_name') return showKitPicker(interaction);
+    if (interaction.isModalSubmit() && interaction.customId === 'server_address_modal') return saveServerAddress(interaction);
     if (interaction.isModalSubmit() && interaction.customId.startsWith('support_modal:')) return createSupportTicket(interaction);
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('kit_pick:')) return addToQueue(interaction);
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('test_result:')) return finishTest(interaction);
   } catch (error) {
     console.error(error);
-    const response = { content: 'İşlem sırasında bir hata oluştu. Bot izinlerini ve ayarlarını kontrol edin.', ephemeral: true };
+    const response = { content: 'İşlem başarısız oldu. Botun kanal ve rol izinlerini kontrol edin.', ephemeral: true };
     if (interaction.deferred || interaction.replied) await interaction.followUp(response); else await interaction.reply(response);
   }
 });
 
-async function handleCommand(interaction) {
-  const { commandName } = interaction;
-  if (commandName === 'server') {
-    const address = interaction.options.getString('address').trim();
-    store.get().serverAddress = address; store.save();
-    return interaction.reply({ content: `Sunucu adresi \`${address}\` olarak ayarlandı.`, ephemeral: true });
-  }
-  if (commandName === 'waitlist-panel') {
-    await interaction.channel.send(panel());
-    return interaction.reply({ content: 'Katılım paneli gönderildi.', ephemeral: true });
-  }
-  if (commandName === 'support-panel') {
-    await interaction.channel.send(supportPanel());
-    return interaction.reply({ content: 'Destek paneli gönderildi.', ephemeral: true });
-  }
-  if (commandName === 'setup') return setupGuild(interaction);
-  if (commandName === 'test-sonuc') return publishTestResult(interaction);
-  if (commandName === 'queue') {
-    const sub = interaction.options.getSubcommand();
-    if (sub === 'status') return status(interaction);
-    if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu komut yalnızca Tester rolü (veya Mesajları Yönet izni) olanlar içindir.', ephemeral: true });
-    const kit = interaction.options.getString('kit'); const current = queue(kit);
-    if (sub === 'close') {
-      if (!current.testerId) return interaction.reply({ content: `${kitName(kit)} sırası zaten kapalı.`, ephemeral: true });
-      if (current.testerId !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: 'Yalnızca sırayı açan tester veya sunucu yöneticisi kapatabilir.', ephemeral: true });
-      current.testerId = null; store.save();
-      return interaction.reply(`🔴 **${kitName(kit)}** sırası kapatıldı. Mevcut bekleyenler korunur; sıra yeniden açıldığında devam eder.`);
-    }
-    if (current.testerId) return interaction.reply({ content: `${kitName(kit)} sırası zaten <@${current.testerId}> tarafından açık.`, ephemeral: true });
-    current.testerId = interaction.user.id;
-    const now = Date.now(); const shouldPing = now - current.lastAnnouncementAt >= PING_COOLDOWN_MS;
-    if (shouldPing) current.lastAnnouncementAt = now;
+async function toggleWaitlistRole(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  let role = findRole(interaction.guild, 'Waitlist Üye');
+  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287 });
+  const subscribers = store.get().notificationSubscribers;
+  if (subscribers.includes(member.id)) {
+    store.get().notificationSubscribers = subscribers.filter((id) => id !== member.id);
+    if (!isWaitingOrTesting(member.id)) await member.roles.remove(role);
     store.save();
-    await interaction.reply(`🟢 **${kitName(kit)}** sırası <@${interaction.user.id}> tarafından açıldı.`);
-    const announcement = findChannel(interaction.guild, 'waitlist-sira-bekleme');
-    const joinChannel = findChannel(interaction.guild, 'waitlist-katil');
-    const role = interaction.guild.roles.cache.find((r) => r.name.toLocaleLowerCase('tr-TR') === 'waitlist üye');
-    if (announcement) await announcement.send({ content: `${shouldPing && role ? `<@&${role.id}>\n` : ''}🟢 **${kitName(kit)} sırası açıldı!**\nAktif Tester: <@${interaction.user.id}>\nSunucu: \`${store.get().serverAddress || 'Henüz ayarlanmadı'}\`\nKatılmak için ${joinChannel ? `<#${joinChannel.id}>` : 'Waitlist Katılım panelini'} kullanın.` });
-    return;
+    return interaction.reply({ content: '🔕 Sıra bildirimleri kapatıldı.', ephemeral: true });
   }
-  if (commandName === 'next') {
-    if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu komut yalnızca Tester rolü (veya Mesajları Yönet izni) olanlar içindir.', ephemeral: true });
-    const kit = interaction.options.getString('kit'); const current = queue(kit);
-    if (current.testerId !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: 'Bu kitin aktif testeri değilsin.', ephemeral: true });
-    if (!current.testerId) return interaction.reply({ content: 'Önce bu kitin sırasını açmalısın.', ephemeral: true });
-    const next = current.entries.shift();
-    if (!next) return interaction.reply(`**${kitName(kit)}** sırasında bekleyen yok.`);
-    activeTests(kit).push({ ...next, testerId: interaction.user.id, calledAt: Date.now() });
+  subscribers.push(member.id);
+  await member.roles.add(role);
+  store.save();
+  return interaction.reply({ content: '🔔 Sıra açıldığında bildirim alacaksın.', ephemeral: true });
+}
+
+async function toggleQueue(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu paneli yalnızca Tester rolü kullanabilir.', ephemeral: true });
+  const kit = interaction.customId.split(':')[1];
+  const current = queue(kit);
+  if (current.testerId) {
+    if (current.testerId !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: `Sırayı <@${current.testerId}> yönetiyor.`, ephemeral: true });
+    current.testerId = null;
     store.save();
-    return interaction.reply(`📣 <@${next.userId}>, **${kitName(kit)}** test sıran geldi!\nMinecraft adı: \`${next.minecraftName}\`${store.get().serverAddress ? `\nSunucu: \`${store.get().serverAddress}\`` : ''}${next.ticketId ? `\nTicket: <#${next.ticketId}>` : ''}`);
+    await interaction.update(testerPanel());
+    return interaction.followUp({ content: `🔴 ${kitName(kit)} sırası kapatıldı. Aktif test tamamlanabilir.`, ephemeral: true });
   }
+  current.testerId = interaction.user.id;
+  const now = Date.now();
+  const shouldPing = now - current.lastAnnouncementAt >= PING_COOLDOWN_MS;
+  if (shouldPing) current.lastAnnouncementAt = now;
+  store.save();
+  await interaction.update(testerPanel());
+  const announcement = findChannel(interaction.guild, 'waitlist-sira-bekleme');
+  const join = findChannel(interaction.guild, 'waitlist-katil');
+  const role = findRole(interaction.guild, 'Waitlist Üye');
+  if (announcement) await announcement.send(`${shouldPing && role ? `<@&${role.id}>\n` : ''}🟢 **${kitName(kit)} sırası açıldı!**\nTester: <@${interaction.user.id}>\nSunucu: \`${store.get().serverAddress || 'Ayarlanmadı'}\`${join ? `\nKatılım: <#${join.id}>` : ''}`);
+  const ticket = await advanceQueue(interaction.guild, kit);
+  return interaction.followUp({ content: ticket ? `🟢 Sıra açıldı; ilk ticket: <#${ticket.id}>` : `🟢 ${kitName(kit)} sırası açıldı.`, ephemeral: true });
 }
-async function status(interaction) {
-  const s = store.get();
-  const lines = Object.keys(KITS).map((kit) => `**${kitName(kit)}:** ${queue(kit).testerId ? `Açık — <@${queue(kit).testerId}>` : 'Kapalı'} • ${queue(kit).entries.length} bekleyen • ${activeTests(kit).length} testte`);
-  return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('Kuyruk Durumu').setDescription(lines.join('\n')).addFields({ name: 'Sunucu', value: s.serverAddress || 'Ayarlanmadı' })], ephemeral: true });
+
+function showServerModal(interaction) {
+  if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: 'Bu ayarı yalnızca yöneticiler değiştirebilir.', ephemeral: true });
+  const modal = new ModalBuilder().setCustomId('server_address_modal').setTitle('Minecraft Sunucu Adresi');
+  const input = new TextInputBuilder().setCustomId('address').setLabel('Sunucu adresi').setPlaceholder('play.sunucu.com').setRequired(true).setMaxLength(100).setStyle(TextInputStyle.Short);
+  if (store.get().serverAddress) input.setValue(store.get().serverAddress);
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+  return interaction.showModal(modal);
 }
-async function showJoinModal(interaction) {
+
+async function saveServerAddress(interaction) {
+  store.get().serverAddress = interaction.fields.getTextInputValue('address').trim();
+  store.save();
+  await refreshTesterPanel(interaction.guild);
+  return interaction.reply({ content: `✅ Sunucu adresi \`${store.get().serverAddress}\` olarak kaydedildi.`, ephemeral: true });
+}
+
+function showJoinModal(interaction) {
   const modal = new ModalBuilder().setCustomId('minecraft_name').setTitle('Minecraft Adın');
   modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Minecraft kullanıcı adı').setPlaceholder('Örn: Steve').setRequired(true).setMinLength(3).setMaxLength(16).setStyle(TextInputStyle.Short)));
   return interaction.showModal(modal);
 }
+
 async function showKitPicker(interaction) {
   const name = interaction.fields.getTextInputValue('name').trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return interaction.reply({ content: 'Minecraft adı 3–16 karakter olmalı; yalnızca harf, rakam ve alt çizgi kullanabilirsin.', ephemeral: true });
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return interaction.reply({ content: 'Geçerli bir Minecraft adı gir.', ephemeral: true });
   const openKits = Object.keys(KITS).filter((kit) => queue(kit).testerId);
-  if (!openKits.length) return interaction.reply({ content: 'Şu an açık test sırası yok. Bir tester sıra açtığında tekrar deneyin.', ephemeral: true });
+  if (!openKits.length) return interaction.reply({ content: 'Şu an açık sıra yok. Bildirim rolünü alırsan açıldığında haber alırsın.', ephemeral: true });
   const now = Date.now();
   const available = openKits.filter((kit) => cooldownEndsAt(kit, interaction.user.id) <= now && !activeTests(kit).some((entry) => entry.userId === interaction.user.id));
   if (!available.length) {
-    const activeKit = openKits.find((kit) => activeTests(kit).some((entry) => entry.userId === interaction.user.id));
-    if (activeKit) return interaction.reply({ content: `Şu an **${kitName(activeKit)}** testin devam ediyor. Sonuç girilmeden yeniden sıraya katılamazsın.`, ephemeral: true });
-    const nextExpiry = Math.min(...openKits.map((kit) => cooldownEndsAt(kit, interaction.user.id)).filter((time) => time > now));
-    return interaction.reply({ content: `Tekrar test için 5 günlük bekleme süren devam ediyor. Kalan süre: **${formatRemaining(nextExpiry - now)}**.`, ephemeral: true });
+    if (openKits.some((kit) => activeTests(kit).some((entry) => entry.userId === interaction.user.id))) return interaction.reply({ content: 'Testin zaten devam ediyor.', ephemeral: true });
+    const expiry = Math.min(...openKits.map((kit) => cooldownEndsAt(kit, interaction.user.id)).filter((time) => time > now));
+    return interaction.reply({ content: `5 günlük bekleme süren devam ediyor: **${formatRemaining(expiry - now)}**.`, ephemeral: true });
   }
-  const menu = new StringSelectMenuBuilder().setCustomId(`kit_pick:${name}`).setPlaceholder('Açık bir kit seç').addOptions(available.map((kit) => ({ label: kitName(kit), value: kit, description: `${queue(kit).entries.length} kişi bekliyor` })));
+  const menu = new StringSelectMenuBuilder().setCustomId(`kit_pick:${name}`).setPlaceholder('Kit seç').addOptions(available.map((kit) => ({ label: kitName(kit), value: kit, description: `${queue(kit).entries.length} kişi bekliyor` })));
   return interaction.reply({ content: 'Test olmak istediğin kiti seç:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
 }
+
 async function addToQueue(interaction) {
-  const minecraftName = interaction.customId.slice('kit_pick:'.length); const kit = interaction.values[0]; const current = queue(kit);
-  if (!current.testerId) return interaction.update({ content: 'Bu sıra az önce kapandı. Lütfen daha sonra tekrar deneyin.', components: [] });
+  await interaction.deferUpdate();
+  const minecraftName = interaction.customId.slice('kit_pick:'.length);
+  const kit = interaction.values[0];
+  const current = queue(kit);
+  if (!current.testerId) return interaction.editReply({ content: 'Sıra az önce kapandı.', components: [] });
   const remaining = cooldownEndsAt(kit, interaction.user.id) - Date.now();
-  if (remaining > 0) return interaction.update({ content: `Bu kitte tekrar test olabilmek için **${formatRemaining(remaining)}** daha beklemelisin.`, components: [] });
-  if (activeTests(kit).some((entry) => entry.userId === interaction.user.id)) return interaction.update({ content: `**${kitName(kit)}** testin zaten devam ediyor.`, components: [] });
-  if (current.entries.some((entry) => entry.userId === interaction.user.id)) return interaction.update({ content: `Zaten **${kitName(kit)}** sırasındasın.`, components: [] });
-  const guildMember = await interaction.guild.members.fetch(interaction.user.id);
-  let role = waitlistRole(interaction.guild);
-  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Waitlist role was missing' });
-  await guildMember.roles.add(role, `${kitName(kit)} waitlist joined`);
-  const ticketCategory = findCategory(interaction.guild, 'waitlist-ticketler');
-  const ticket = await interaction.guild.channels.create({ name: `test-${kit}-${minecraftName}`.toLowerCase(), type: ChannelType.GuildText, parent: ticketCategory?.id, permissionOverwrites: ticketOverwrites(interaction.guild, interaction.user.id), topic: `Waitlist | ${kitName(kit)} | ${minecraftName} | ${interaction.user.id}` });
-  current.entries.push({ userId: interaction.user.id, minecraftName, ticketId: ticket.id, joinedAt: Date.now() }); store.save();
-  await ticket.send(`Merhaba <@${interaction.user.id}>! **${kitName(kit)}** sırasına \`${minecraftName}\` adıyla eklendin. Aktif tester seni çağırdığında buradan devam edebilirsiniz.`);
-  return interaction.update({ content: `✅ **${kitName(kit)}** sırasına eklendin. Sıra: **${current.entries.length}**. Ticketın: <#${ticket.id}>`, components: [] });
+  if (remaining > 0) return interaction.editReply({ content: `Yeniden test için **${formatRemaining(remaining)}** beklemelisin.`, components: [] });
+  if (activeTests(kit).some((entry) => entry.userId === interaction.user.id)) return interaction.editReply({ content: 'Testin zaten devam ediyor.', components: [] });
+  if (current.entries.some((entry) => entry.userId === interaction.user.id)) return interaction.editReply({ content: `Zaten ${kitName(kit)} sırasındasın.`, components: [] });
+
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  let role = findRole(interaction.guild, 'Waitlist Üye');
+  if (!role) role = await interaction.guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287 });
+  await member.roles.add(role);
+  current.entries.push({ userId: interaction.user.id, minecraftName, joinedAt: Date.now() });
+  store.save();
+  const position = current.entries.length;
+  const ticket = await advanceQueue(interaction.guild, kit);
+  await refreshTesterPanel(interaction.guild);
+  return interaction.editReply({ content: ticket?.topic?.includes(interaction.user.id) ? `✅ Sıran geldi; ticketın: <#${ticket.id}>` : `✅ ${kitName(kit)} sırasına eklendin. Sıran: **${position}**`, components: [] });
 }
 
-async function showSupportModal(interaction) {
-  const typeKey = interaction.customId.split(':')[1];
-  const type = SUPPORT_TYPES[typeKey];
-  if (!type) return interaction.reply({ content: 'Geçersiz destek kategorisi.', ephemeral: true });
+async function advanceQueue(guild, kit) {
+  const current = queue(kit);
+  if (!current.testerId || activeTests(kit).length || !current.entries.length) return null;
+  const next = current.entries.shift();
+  const active = { ...next, testerId: current.testerId, claimedBy: null, calledAt: Date.now(), ticketId: null };
+  activeTests(kit).push(active);
+  store.save();
+  try {
+    const ticket = await guild.channels.create({
+      name: `test-${kit}-${next.minecraftName}`.toLowerCase().slice(0, 100), type: ChannelType.GuildText,
+      parent: findCategory(guild, 'waitlist-ticketler')?.id, permissionOverwrites: privateTicketPermissions(guild, next.userId),
+      topic: `TierTest | ${kit} | ${next.userId}`
+    });
+    active.ticketId = ticket.id;
+    store.save();
+    await ticket.send({
+      content: `<@${next.userId}> <@${current.testerId}>`,
+      embeds: [new EmbedBuilder().setColor(0xF1C40F).setTitle(`🏆 ${kitName(kit)} Testi Hazır`).setDescription('Tester testi sahiplenir; test bitince kazanılan tieri listeden seçer. Sonuç, rol ve sıradaki ticket otomatik işlenir.').addFields(
+        { name: 'Oyuncu', value: `<@${next.userId}>`, inline: true }, { name: 'Minecraft Adı', value: next.minecraftName, inline: true },
+        { name: 'Tester', value: `<@${current.testerId}>`, inline: true }, { name: 'Sunucu', value: store.get().serverAddress || 'Ayarlanmadı' }
+      ).setTimestamp()], components: testControls(kit, next.userId)
+    });
+    await refreshTesterPanel(guild);
+    return ticket;
+  } catch (error) {
+    activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
+    current.entries.unshift(next);
+    store.save();
+    throw error;
+  }
+}
+
+const findActive = (kit, userId) => activeTests(kit).find((entry) => entry.userId === userId);
+const canManage = (interaction, active) => interaction.member.permissions.has(PermissionFlagsBits.ManageGuild) || active.testerId === interaction.user.id || active.claimedBy === interaction.user.id;
+
+async function claimTest(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Yalnızca Tester rolü sahiplenebilir.', ephemeral: true });
+  const [, kit, userId] = interaction.customId.split(':');
+  const active = findActive(kit, userId);
+  if (!active) return interaction.reply({ content: 'Bu test aktif değil.', ephemeral: true });
+  if (!canManage(interaction, active)) return interaction.reply({ content: `Sırayı <@${active.testerId}> yönetiyor.`, ephemeral: true });
+  active.claimedBy = interaction.user.id;
+  store.save();
+  await interaction.update({ components: testControls(kit, userId, active.claimedBy) });
+  return interaction.followUp({ content: `🙋 Test <@${interaction.user.id}> tarafından sahiplenildi.`, ephemeral: true });
+}
+
+async function finishTest(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Sonucu yalnızca Tester seçebilir.', ephemeral: true });
+  await interaction.deferUpdate();
+  const [, kit, userId] = interaction.customId.split(':');
+  const active = findActive(kit, userId);
+  if (!active) return interaction.editReply({ content: 'Bu test aktif değil.', components: [] });
+  if (!active.claimedBy || (active.claimedBy !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild))) return interaction.followUp({ content: 'Sonucu yalnızca testi sahiplenen tester seçebilir.', ephemeral: true });
+  const earnedRank = interaction.values[0];
+  const member = await interaction.guild.members.fetch(userId);
+  const previousRole = member.roles.cache.find((role) => new RegExp(`^${tierPrefix(kit)} (HT|LT)[1-5]$`, 'i').test(role.name));
+  const previousRank = previousRole ? RANKS.find((rank) => RANK_SHORT[rank].toLowerCase() === previousRole.name.split(' ').at(-1).toLowerCase()) || previousRole.name : 'Unranked';
+  const roleName = `${tierPrefix(kit)} ${RANK_SHORT[earnedRank]}`;
+  let earnedRole = findRole(interaction.guild, roleName);
+  if (!earnedRole) earnedRole = await interaction.guild.roles.create({ name: roleName, color: earnedRank.startsWith('High') ? 0xF1C40F : 0x95A5A6 });
+  if (!earnedRole.editable) return interaction.followUp({ content: `${roleName} rolünü verebilmem için bot rolünü onun üstüne taşı.`, ephemeral: true });
+  const oldRoles = member.roles.cache.filter((role) => role.id !== earnedRole.id && new RegExp(`^${tierPrefix(kit)} (HT|LT)[1-5]$`, 'i').test(role.name));
+  if (oldRoles.size) await member.roles.remove(oldRoles);
+  await member.roles.add(earnedRole);
+
+  activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
+  store.get().cooldowns[kit][userId] = Date.now();
+  store.save();
+  const waitlistRole = findRole(interaction.guild, 'Waitlist Üye');
+  if (waitlistRole && !store.get().notificationSubscribers.includes(userId) && !isWaitingOrTesting(userId)) await member.roles.remove(waitlistRole);
+
+  const resultEmbed = new EmbedBuilder().setColor(0xF1E7C3).setTitle(`${active.minecraftName}'in Test Sonuçları 🏆`).addFields(
+    { name: 'Tester', value: `<@${interaction.user.id}>` }, { name: 'Bölge', value: 'TR', inline: true }, { name: 'Kit', value: kitName(kit), inline: true },
+    { name: 'Kullanıcı Adı', value: active.minecraftName }, { name: 'Önceki Rank', value: previousRank, inline: true },
+    { name: 'Kazanılan Rank', value: earnedRank, inline: true }, { name: 'Verilen Rol', value: `<@&${earnedRole.id}>` }
+  ).setFooter({ text: `[1.21+] MC ${kitName(kit)} • Yeniden test: 5 gün` }).setTimestamp();
+  const results = findChannel(interaction.guild, `${kit}-sonuclari`) || findChannel(interaction.guild, 'test-sonuclari');
+  if (results) await results.send({ content: `<@${userId}>`, embeds: [resultEmbed] });
+  await interaction.editReply({ embeds: [resultEmbed], components: [] });
+  await interaction.channel.send('✅ Sonuç ve rol kaydedildi. Ticket 10 saniye içinde kapanacak; sıradaki oyuncu otomatik çağrılıyor.');
+  await refreshTesterPanel(interaction.guild);
+  await advanceQueue(interaction.guild, kit);
+  setTimeout(() => interaction.channel.delete('Test completed').catch(console.error), 10000);
+}
+
+async function skipTest(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Yalnızca Tester kullanabilir.', ephemeral: true });
+  const [, kit, userId] = interaction.customId.split(':');
+  const active = findActive(kit, userId);
+  if (!active || !canManage(interaction, active)) return interaction.reply({ content: 'Bu testi yönetemezsin.', ephemeral: true });
+  activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
+  queue(kit).entries.push({ userId, minecraftName: active.minecraftName, joinedAt: active.joinedAt });
+  store.save();
+  await interaction.reply('⏭️ Oyuncu sıranın sonuna gönderildi; sıradaki ticket açılıyor.');
+  await refreshTesterPanel(interaction.guild);
+  await advanceQueue(interaction.guild, kit);
+  setTimeout(() => interaction.channel.delete('Moved to queue end').catch(console.error), 5000);
+}
+
+async function removeTest(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Yalnızca Tester kullanabilir.', ephemeral: true });
+  const [, kit, userId] = interaction.customId.split(':');
+  const active = findActive(kit, userId);
+  if (!active || !canManage(interaction, active)) return interaction.reply({ content: 'Bu testi yönetemezsin.', ephemeral: true });
+  activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
+  store.save();
+  const member = await interaction.guild.members.fetch(userId).catch(() => null);
+  const role = findRole(interaction.guild, 'Waitlist Üye');
+  if (member && role && !store.get().notificationSubscribers.includes(userId) && !isWaitingOrTesting(userId)) await member.roles.remove(role);
+  await interaction.reply('✖️ Oyuncu testten çıkarıldı; sıradaki ticket açılıyor.');
+  await refreshTesterPanel(interaction.guild);
+  await advanceQueue(interaction.guild, kit);
+  setTimeout(() => interaction.channel.delete('Removed from test').catch(console.error), 5000);
+}
+
+function showSupportModal(interaction) {
+  const key = interaction.customId.split(':')[1];
   const existing = interaction.guild.channels.cache.find((channel) => channel.topic?.startsWith(`Support | ${interaction.user.id} |`));
-  if (existing) return interaction.reply({ content: `Zaten açık bir destek talebin var: <#${existing.id}>`, ephemeral: true });
-  const modal = new ModalBuilder().setCustomId(`support_modal:${typeKey}`).setTitle(`${type.label} Talebi`);
+  if (existing) return interaction.reply({ content: `Zaten açık bir talebin var: <#${existing.id}>`, ephemeral: true });
+  const modal = new ModalBuilder().setCustomId(`support_modal:${key}`).setTitle(`${SUPPORT_TYPES[key].label} Talebi`);
   modal.addComponents(
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('subject').setLabel('Konu').setPlaceholder('Talebini kısaca özetle').setRequired(true).setMaxLength(80).setStyle(TextInputStyle.Short)),
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('details').setLabel('Açıklama').setPlaceholder('Yetkililerin bilmesi gereken detayları yaz').setRequired(true).setMinLength(10).setMaxLength(1000).setStyle(TextInputStyle.Paragraph))
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('subject').setLabel('Konu').setRequired(true).setMaxLength(80).setStyle(TextInputStyle.Short)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('details').setLabel('Açıklama').setRequired(true).setMinLength(10).setMaxLength(1000).setStyle(TextInputStyle.Paragraph))
   );
   return interaction.showModal(modal);
 }
 
 async function createSupportTicket(interaction) {
   await interaction.deferReply({ ephemeral: true });
-  const typeKey = interaction.customId.split(':')[1];
-  const type = SUPPORT_TYPES[typeKey];
-  if (!type) return interaction.editReply('Geçersiz destek kategorisi.');
+  const key = interaction.customId.split(':')[1];
+  const type = SUPPORT_TYPES[key];
   const existing = interaction.guild.channels.cache.find((channel) => channel.topic?.startsWith(`Support | ${interaction.user.id} |`));
-  if (existing) return interaction.editReply(`Zaten açık bir destek talebin var: <#${existing.id}>`);
-  const category = findCategory(interaction.guild, 'destek-talepleri');
+  if (existing) return interaction.editReply(`Zaten açık bir talebin var: <#${existing.id}>`);
   const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20) || interaction.user.id;
   const ticket = await interaction.guild.channels.create({
-    name: `${typeKey}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: category?.id,
-    permissionOverwrites: ticketOverwrites(interaction.guild, interaction.user.id, 'support'),
-    topic: `Support | ${interaction.user.id} | ${typeKey}`
+    name: `${key}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: findCategory(interaction.guild, 'destek-talepleri')?.id,
+    permissionOverwrites: privateTicketPermissions(interaction.guild, interaction.user.id, true), topic: `Support | ${interaction.user.id} | ${key}`
   });
-  const subject = interaction.fields.getTextInputValue('subject');
-  const details = interaction.fields.getTextInputValue('details');
-  await ticket.send({
-    content: `<@${interaction.user.id}>`,
-    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle(`${type.emoji} ${type.label} Talebi`).addFields(
-      { name: 'Talep sahibi', value: `<@${interaction.user.id}>`, inline: true }, { name: 'Konu', value: subject, inline: true }, { name: 'Açıklama', value: details }
-    ).setFooter({ text: `Kullanıcı ID: ${interaction.user.id}` }).setTimestamp()],
-    components: [ticketControls()]
-  });
-  return interaction.editReply(`✅ Destek talebin oluşturuldu: <#${ticket.id}>`);
+  await ticket.send({ content: `<@${interaction.user.id}>`, embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle(`${type.emoji} ${type.label} Talebi`).addFields(
+    { name: 'Talep sahibi', value: `<@${interaction.user.id}>`, inline: true }, { name: 'Konu', value: interaction.fields.getTextInputValue('subject'), inline: true }, { name: 'Açıklama', value: interaction.fields.getTextInputValue('details') }
+  ).setTimestamp()], components: [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('support_claim').setLabel('Talebi Sahiplen').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
+    new ButtonBuilder().setCustomId('support_close').setLabel('Talebi Kapat').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+  )] });
+  return interaction.editReply(`✅ Talebin oluşturuldu: <#${ticket.id}>`);
 }
 
-async function claimTicket(interaction) {
-  if (!isStaff(interaction.member)) return interaction.reply({ content: 'Bu talebi yalnızca yetkililer sahiplenebilir.', ephemeral: true });
-  return interaction.reply(`🙋 Bu talep <@${interaction.user.id}> tarafından sahiplenildi.`);
+function claimSupport(interaction) {
+  if (!isStaff(interaction.member)) return interaction.reply({ content: 'Yalnızca yetkililer sahiplenebilir.', ephemeral: true });
+  return interaction.reply(`🙋 Talep <@${interaction.user.id}> tarafından sahiplenildi.`);
 }
 
-async function closeTicket(interaction) {
+async function closeSupport(interaction) {
   const ownerId = interaction.channel.topic?.split(' | ')[1];
-  if (ownerId !== interaction.user.id && !isStaff(interaction.member)) return interaction.reply({ content: 'Bu talebi yalnızca talep sahibi veya yetkili kapatabilir.', ephemeral: true });
+  if (ownerId !== interaction.user.id && !isStaff(interaction.member)) return interaction.reply({ content: 'Yalnızca talep sahibi veya yetkili kapatabilir.', ephemeral: true });
   await interaction.reply('🔒 Talep 5 saniye içinde kapatılacak.');
-  setTimeout(() => interaction.channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(console.error), 5000);
+  setTimeout(() => interaction.channel.delete(`Closed by ${interaction.user.tag}`).catch(console.error), 5000);
 }
 
-async function publishTestResult(interaction) {
-  if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu komut yalnızca Tester rolü (veya Mesajları Yönet izni) olanlar içindir.', ephemeral: true });
-  await interaction.deferReply({ ephemeral: true });
-  const minecraftName = interaction.options.getString('minecraft-adi').trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) return interaction.editReply('Geçerli bir Minecraft kullanıcı adı girin.');
-  const kit = interaction.options.getString('kit');
-  const previousRank = interaction.options.getString('onceki-rank');
-  const earnedRank = interaction.options.getString('kazanilan-rank');
-  const region = interaction.options.getString('bolge') || 'TR';
-  const member = interaction.options.getUser('discord-uyesi');
-  const activeIndex = activeTests(kit).findIndex((entry) => entry.userId === member.id);
-  if (activeIndex === -1 && !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-    return interaction.editReply(`Bu üye aktif **${kitName(kit)}** testinde görünmüyor. Önce \`/next kit:${kitName(kit)}\` kullanın.`);
-  }
-  const guildMember = await interaction.guild.members.fetch(member.id);
-  const roleName = `${tierRolePrefix(kit)} ${RANK_SHORT[earnedRank]}`;
-  let earnedRole = interaction.guild.roles.cache.find((role) => role.name.toLowerCase() === roleName.toLowerCase());
-  if (!earnedRole) earnedRole = await interaction.guild.roles.create({ name: roleName, color: earnedRank.startsWith('High') ? 0xF1C40F : 0x95A5A6, reason: `${kitName(kit)} tier result` });
-  if (!earnedRole.editable) return interaction.editReply(`**${roleName}** rolü botun rolünden yukarıda. Bot rolünü bu tier rolünün üstüne taşıyın.`);
-  const oldTierRoles = guildMember.roles.cache.filter((role) => role.id !== earnedRole.id && new RegExp(`^${tierRolePrefix(kit)} (HT|LT)[1-5]$`, 'i').test(role.name));
-  if (oldTierRoles.size) await guildMember.roles.remove(oldTierRoles, `${kitName(kit)} tier updated`);
-  await guildMember.roles.add(earnedRole, `${kitName(kit)} test result: ${earnedRank}`);
-  if (activeIndex !== -1) activeTests(kit).splice(activeIndex, 1);
-  queue(kit).entries = queue(kit).entries.filter((entry) => entry.userId !== member.id);
-  store.get().cooldowns[kit][member.id] = Date.now();
-  store.save();
-  const waitingRole = waitlistRole(interaction.guild);
-  if (waitingRole && guildMember.roles.cache.has(waitingRole.id) && !isWaitingOrTesting(member.id)) await guildMember.roles.remove(waitingRole, 'Test completed');
-  const requestedChannel = interaction.options.getChannel('kanal');
-  const resultChannel = requestedChannel || findChannel(interaction.guild, `${kit}-sonuclari`) || findChannel(interaction.guild, 'test-sonuclari') || interaction.channel;
-  const embed = new EmbedBuilder()
-    .setColor(0xF1E7C3)
-    .setTitle(`${minecraftName}'in Test Sonuçları 🏆`)
-    .addFields(
-      { name: 'Tester', value: `<@${interaction.user.id}>` },
-      { name: 'Bölge', value: region, inline: true },
-      { name: 'Kit', value: kitName(kit), inline: true },
-      { name: 'Kullanıcı Adı', value: minecraftName },
-      { name: 'Önceki Rank', value: previousRank, inline: true },
-      { name: 'Kazanılan Rank', value: earnedRank, inline: true }
-    )
-    .setFooter({ text: `[1.21+] MC ${kitName(kit)} • Yanlış atılan sonuçlar için destek talebi açın.` })
-    .setTimestamp();
-  await resultChannel.send({ content: `<@${member.id}>`, embeds: [embed] });
-  const expiry = Math.floor((store.get().cooldowns[kit][member.id] + TEST_COOLDOWN_MS) / 1000);
-  return interaction.editReply(`✅ Sonuç <#${resultChannel.id}> kanalına gönderildi ve <@&${earnedRole.id}> rolü verildi. Bu üye <t:${expiry}:R> yeniden ${kitName(kit)} testine girebilir.`);
-}
+module.exports = { waitlistPanel, testerPanel, supportPanel, testControls, formatRemaining };
 
-async function setupGuild(interaction) {
-  await interaction.deferReply({ ephemeral: true });
-  const guild = interaction.guild;
-  let testerRole = guild.roles.cache.find((role) => role.name.toLowerCase() === 'tester');
-  if (!testerRole) testerRole = await guild.roles.create({ name: 'Tester', color: 0xF1C40F, reason: 'Tierlist Bot setup' });
-  let waitlistRole = guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === 'waitlist üye');
-  if (!waitlistRole) waitlistRole = await guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Tierlist Bot setup' });
-  let waitlistCategory = findCategory(guild, 'waitlist-ticketler');
-  if (!waitlistCategory) waitlistCategory = await guild.channels.create({ name: 'WAITLIST-TICKETLER', type: ChannelType.GuildCategory });
-  let supportCategory = findCategory(guild, 'destek-talepleri');
-  if (!supportCategory) supportCategory = await guild.channels.create({ name: 'DESTEK-TALEPLERİ', type: ChannelType.GuildCategory });
-  const readOnly = [
-    { id: guild.roles.everyone.id, allow: ['ViewChannel', 'ReadMessageHistory'], deny: ['SendMessages'] },
-    { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory'] }
-  ];
-  async function ensureText(name, permissionOverwrites) {
-    return findChannel(guild, name) || guild.channels.create({ name, type: ChannelType.GuildText, permissionOverwrites });
-  }
-  const announcement = await ensureText('waitlist-sira-bekleme', readOnly);
-  const join = await ensureText('waitlist-katil', readOnly);
-  const results = await ensureText('test-sonuclari', [
-    ...readOnly,
-    { id: testerRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
-  ]);
-  const support = await ensureText('destek', readOnly);
-  await join.send(panel());
-  await support.send(supportPanel());
-  return interaction.editReply(`✅ Kurulum tamamlandı.\nDuyuru: <#${announcement.id}>\nWaitlist: <#${join.id}>\nSonuçlar: <#${results.id}>\nDestek: <#${support.id}>\n\nTester rolünü ilgili kişilere vermeyi unutmayın.`);
+if (require.main === module) {
+  if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN tanımlı değil.');
+  client.login(process.env.DISCORD_TOKEN);
 }
-client.login(process.env.DISCORD_TOKEN);
 
