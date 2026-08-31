@@ -120,7 +120,7 @@ function waitlistPanel(onlyKit = null) {
     embeds: [new EmbedBuilder()
       .setColor(anyOpen ? 0x57F287 : 0x747F8D)
       .setTitle(onlyKit ? '🏆 ' + kitName(onlyKit) + ' Test Sırası' : '🏆 Tierlist Test Başvurusu')
-      .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.')
+      .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.\n\n🔔 Sıra açılış bildirimi için Waitlist Rolünü Al / Bırak düğmesine bas.')
       .addFields(
         ...kitFields,
         { name: '🌐 Sunucu', value: `\`${store.get().serverAddress || 'Henüz ayarlanmadı'}\``, inline: false },
@@ -133,7 +133,7 @@ function waitlistPanel(onlyKit = null) {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('waitlist_status').setLabel('Sıramı Gör').setStyle(ButtonStyle.Primary).setEmoji('🔎'),
         new ButtonBuilder().setCustomId('waitlist_leave').setLabel('Sıradan Ayrıl').setStyle(ButtonStyle.Danger).setEmoji('🚪'),
-        new ButtonBuilder().setCustomId('waitlist_role_toggle').setLabel('Sıra Bildirimleri').setStyle(ButtonStyle.Secondary).setEmoji('🔔'),
+        new ButtonBuilder().setCustomId('waitlist_role_toggle').setLabel('Waitlist Rolünü Al / Bırak').setStyle(ButtonStyle.Secondary).setEmoji('🔔'),
         new ButtonBuilder().setCustomId('player_profile').setLabel('Test Profilim').setStyle(ButtonStyle.Secondary).setEmoji('👤')
       )
     ]
@@ -910,12 +910,12 @@ async function toggleWaitlistRole(interaction) {
     store.get().notificationSubscribers = subscribers.filter((id) => id !== member.id);
     if (!isWaitingOrTesting(member.id)) await member.roles.remove(role);
     store.save();
-    return interaction.editReply('🔕 Sıra bildirimleri kapatıldı.');
+    return interaction.editReply('🔕 Waitlist rolün ve sıra bildirimlerin kapatıldı.');
   }
   subscribers.push(member.id);
   await member.roles.add(role);
   store.save();
-  return interaction.editReply('🔔 Sıra açıldığında bildirim alacaksın.');
+  return interaction.editReply('🔔 Waitlist Üye rolünü aldın. Elytra veya Trap sırası açıldığında bu kanalda ping alacaksın.');
 }
 
 async function applyQueueAction(interaction, kit, action) {
@@ -948,8 +948,8 @@ async function applyQueueAction(interaction, kit, action) {
   store.save({ source: `queue-${action}` });
   await interaction.update(testerPanel(interaction.guild.id));
   await refreshWaitlistPanel(interaction.guild).catch((error) => console.warn('Waitlist paneli yenilenemedi:', error.message));
-  const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
-  const join = configuredChannel(interaction.guild, 'waitlistPanelChannelId');
+  const join = configuredChannel(interaction.guild, kit === 'elytra' ? 'elytraWaitlistPanelChannelId' : 'trapWaitlistPanelChannelId') || configuredChannel(interaction.guild, 'waitlistPanelChannelId');
+  const announcement = join || configuredChannel(interaction.guild, 'announcementChannelId');
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
   const actionText = action === 'open' ? 'açıldı' : action === 'pause' ? 'duraklatıldı' : 'kapatıldı';
   const icon = action === 'open' ? '🟢' : action === 'pause' ? '🟡' : '🔴';
