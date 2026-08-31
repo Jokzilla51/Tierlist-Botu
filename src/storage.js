@@ -7,7 +7,8 @@ const initial = {
   serverAddress: null,
   queues: { elytra: structuredClone(initialQueue), trap: structuredClone(initialQueue) },
   activeTests: { elytra: [], trap: [] },
-  cooldowns: { elytra: {}, trap: {} }
+  cooldowns: { elytra: {}, trap: {} },
+  notificationSubscribers: []
 };
 
 function load() {
@@ -21,7 +22,8 @@ function load() {
         trap: { ...initialQueue, ...(saved.queues?.trap || {}) }
       },
       activeTests: { ...initial.activeTests, ...(saved.activeTests || {}) },
-      cooldowns: { ...initial.cooldowns, ...(saved.cooldowns || {}) }
+      cooldowns: { ...initial.cooldowns, ...(saved.cooldowns || {}) },
+      notificationSubscribers: Array.isArray(saved.notificationSubscribers) ? saved.notificationSubscribers : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('Veri dosyası okunamadı:', error);
