@@ -17,12 +17,16 @@ Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar;
 - Beş kategorili, düğmeli destek sistemi: Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer
 - Kullanıcı başına tek açık destek talebi, yetkili sahiplenme ve güvenli kapatma düğmeleri
 - `/test-sonuc` ile ekran görüntülerindeki stile benzer tier sonuç kartları
+- Sıraya katılan kullanıcıya otomatik `Waitlist Üye` rolü
+- Test sonucu girilince otomatik `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri kit-tier rolü
+- Yeni sonuçta aynı kite ait eski tier rolünü kaldırıp yeni rolü verme
+- Sonuçtan sonra aynı kit için 5 günlük yeniden test bekleme süresi
 - `/setup` ile gerekli rollerin, kategorilerin, kanalların ve panellerin otomatik kurulumu
 
 ## Discord kurulumu
 
 1. Discord Developer Portal'da bir uygulama ve bot oluşturun.
-2. Botu sunucunuza eklerken `bot` ve `applications.commands` kapsamlarını seçin. Bot için en az **Kanalları Yönet**, **Mesaj Gönder**, **Mesaj Geçmişini Oku**, **Rolleri Görüntüle** izinlerini verin.
+2. Botu sunucunuza eklerken `bot` ve `applications.commands` kapsamlarını seçin. Bot için en az **Kanalları Yönet**, **Rolleri Yönet**, **Mesaj Gönder**, **Bağlantı Yerleştir**, **Mesaj Geçmişini Oku** izinlerini verin. Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır.
 3. En kolay kurulum için bot sunucuya girdikten sonra `/setup` komutunu kullanın. Şunlar otomatik oluşturulur:
    - `#waitlist-sira-bekleme` — sıra duyuruları
    - `#waitlist-katil` — katılım paneli
@@ -44,14 +48,16 @@ Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar;
 /next kit:Elytra
 /queue close kit:Elytra
 /server address:play.sunucunuz.com
-/test-sonuc minecraft-adi:Steve kit:Elytra onceki-rank:"Low Tier 3" kazanilan-rank:"Low Tier 2"
+/test-sonuc minecraft-adi:Steve kit:Elytra onceki-rank:"Low Tier 3" kazanilan-rank:"Low Tier 2" discord-uyesi:@Steve
 /support-panel
 /setup
 ```
 
 Her kitte aynı anda yalnızca bir tester aktif olabilir. Sıra kapandığında mevcut bekleyenler silinmez; tekrar açıldığında sırada kalırlar. Bir kullanıcı kit başına yalnızca bir kez sırada olabilir.
 
-`/test-sonuc` komutunda bölge, Discord üyesi ve hedef kanal isteğe bağlıdır. Kanal seçilmezse bot önce kit adına özel sonucu (`#elytra-sonuclari` veya `#trap-sonuclari`), sonra `#test-sonuclari` kanalını arar.
+`/test-sonuc` komutunda Discord üyesi zorunludur; tier rolü bu üyeye verilir. Bölge ve hedef kanal isteğe bağlıdır. Kanal seçilmezse bot önce kit adına özel sonucu (`#elytra-sonuclari` veya `#trap-sonuclari`), sonra `#test-sonuclari` kanalını arar.
+
+Tester `/next` ile oyuncuyu çağırdığında oyuncu aktif test durumuna geçer. `/test-sonuc` girildiğinde bot eski kit tier rolünü kaldırır, yeni rolü verir, gerek kalmadıysa `Waitlist Üye` rolünü kaldırır ve aynı kit için 5 günlük bekleme süresini başlatır. Bekleme süresi devam eden kullanıcı panelden yeniden katılmaya çalışırsa kalan süreyi görür.
 
 ## Render ile yayınlama
 
