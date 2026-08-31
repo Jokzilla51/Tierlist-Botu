@@ -7,7 +7,7 @@ const commands = [
     .setDescription('Tierlist botunun panel, kanal, kategori ve rollerini ayarlar.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
-    .addChannelOption((option) => option.setName('waitlist-panel').setDescription('Eski birleşik panel (isteğe bağlı)').setRequired(false).addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option.setName('waitlist-panel').setDescription('Elytra paneliyle aynı kanalı seçebilirsin').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('elytra-waitlist-panel').setDescription('Elytra waitlist panel kanalı').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('trap-waitlist-panel').setDescription('Trap waitlist panel kanalı').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('tester-panel').setDescription('Tester kontrol panelinin gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText))
