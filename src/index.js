@@ -26,6 +26,7 @@ const tierPrefix = (kit) => kit === 'elytra' ? 'Ely' : 'Trap';
 const findChannel = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.isTextBased());
 const findCategory = (guild, name) => guild.channels.cache.find((channel) => channel.name.toLowerCase() === name.toLowerCase() && channel.type === ChannelType.GuildCategory);
 const findRole = (guild, name) => guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === name.toLocaleLowerCase('tr-TR'));
+const findTesterRole = (guild) => [...guild.roles.cache.values()].filter((role) => !role.managed && /tester/i.test(role.name)).sort((a, b) => b.position - a.position)[0];
 const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /tester/i.test(role.name));
 const isStaff = (member) => member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /(tester|destek|support|moderator|yetkili)/i.test(role.name));
 const cooldownEndsAt = (kit, userId) => (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS;
@@ -114,7 +115,7 @@ async function refreshTesterPanel(guild) {
 }
 
 async function ensureGuildSetup(guild) {
-  let testerRole = findRole(guild, 'Tester');
+  let testerRole = findTesterRole(guild);
   if (!testerRole) testerRole = await guild.roles.create({ name: 'Tester', color: 0xF1C40F, reason: 'Automatic setup' });
   if (!findRole(guild, 'Waitlist Üye')) await guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Automatic setup' });
   if (!findCategory(guild, 'waitlist-ticketler')) await guild.channels.create({ name: 'WAITLIST-TICKETLER', type: ChannelType.GuildCategory });
@@ -130,6 +131,8 @@ async function ensureGuildSetup(guild) {
   await ensureText('test-sonuclari', readOnly);
   const support = await ensureText('destek', readOnly);
   const tester = await ensureText('tester-panel', testerOnly);
+  await tester.permissionOverwrites.edit(testerRole, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, { reason: 'Use existing tester role for panel access' });
+  await tester.permissionOverwrites.edit(guild.members.me, { ViewChannel: true, SendMessages: true, EmbedLinks: true, ReadMessageHistory: true }, { reason: 'Tierlist Bot panel access' });
   await ensurePanel(join, 'join_waitlist', waitlistPanel());
   await ensurePanel(support, 'support_create:application', supportPanel());
   await ensurePanel(tester, 'queue_toggle:elytra', testerPanel());
