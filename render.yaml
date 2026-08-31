@@ -1,10 +1,11 @@
 services:
-  - type: worker
+  - type: web
     name: minecraft-tierlist-discord-bot
     runtime: node
     plan: free
     buildCommand: npm ci
     startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: DISCORD_TOKEN
         sync: false
