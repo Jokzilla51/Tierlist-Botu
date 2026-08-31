@@ -15,35 +15,49 @@ Elytra ve Trap test sıraları için Discord botu. Yönetici panel kanallarını
 - Destek ticket kategorisi
 - Mevcut tester rolü
 - Waitlist rolü
+- Sonuç kanalıyla aynı olmayan, yalnız yetkililerin görebildiği özel log ve transcript kanalı
 
-Bot seçilen kanallara panelleri gönderir ve bundan sonra yalnızca bu ayarları kullanır. Kendi başına kanal, kategori, Tester rolü veya Waitlist rolü oluşturmaz.
+Bot seçilen kanallara panelleri gönderir ve bundan sonra yalnızca bu ayarları kullanır. Kendi başına kanal, kategori, Tester rolü veya Waitlist rolü oluşturmaz. `/kurulum`, özel log kanalını `@everyone` için gizler; destek ve şikâyet transcriptleri hiçbir zaman sonuç kanalına gönderilmez.
 
-Kurulum seçimleri ayrıca tester panelinin düğmelerine görünmez bir yedek olarak yazılır. Render yeniden deploy edilip yerel dosya silinse bile bot açılışta mevcut tester panelini tarar; kanal, kategori, rol ve sunucu adresi ayarlarını otomatik geri yükler. Bu özelliği içeren sürüme geçerken `/kurulum` komutunu son kez çalıştırmanız gerekir; sonraki deploylarda ancak seçtiğiniz kanal, kategori veya roller değişirse yeniden kullanılır.
+Kurulum seçimleri tester panelinin düğmelerine görünmez bir yedek olarak yazılır. Kuyruklar, aktif testler, 5 günlük süreler, yasaklar, geçmiş ve istatistikler de tester panelindeki sabitlenmiş `TierlistBotState:v2` mesajına otomatik yedeklenir. Render yeniden deploy edilse bile bot bu yedeği ve açık ticket konularını okuyarak kaldığı yerden devam eder. V2'ye geçerken `/kurulum` komutunu son kez çalıştırın ve botun oluşturduğu yedek mesajını silmeyin.
 
 Diğer kurulum komutları:
 
 ```text
 /sunucu-ayarla adres:play.sunucu.com
 /panelleri-yenile
+/kurulum-durum
+/test-yasakla kullanici:@Oyuncu gun:7 sebep:No-show
+/test-yasak-kaldir kullanici:@Oyuncu
+/sonuc-duzelt kullanici:@Oyuncu kit:Elytra yeni-tier:High Tier 3
 ```
 
 `/panelleri-yenile`, panel mesajı silinmişse yeniden gönderir; mevcutsa günceller.
 
 ## Otomatik test akışı
 
-1. Tester, seçtiğiniz tester panelinden Elytra veya Trap sırasını açar.
-2. Waitlist paneli Elytra/Trap durumunu, testerı, bekleyen sayısını ve sunucu adresini canlı gösterir. Oyuncu açık kitin doğrudan katılım düğmesine basıp Minecraft adını yazar ve ayarlanan Waitlist rolünü alır.
-3. İlk oyuncunun ticketı seçilen test kategorisinde otomatik açılır.
-4. Tester **Testi Sahiplen** düğmesine basar.
-5. Test bitince kazanılan tier dropdown menüsünden seçilir.
-6. Bot eski kit tier rolünü kaldırıp `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri yeni rolü verir.
-7. Sonuç seçilen sonuç kanalına gönderilir.
-8. Ticket kapanır ve sıradaki oyuncunun ticketı otomatik açılır.
-9. Oyuncu aynı kit için 5 gün geçmeden tekrar sıraya giremez.
+1. Tester, Elytra veya Trap sırasını panelden **Aç**, **Duraklat** veya **Kapat** seçenekleriyle yönetir.
+2. Waitlist paneli durumu, kapasiteyi, bekleyen sayısını, aktif testi ve yaklaşık süreyi canlı gösterir.
+3. Oyuncu açık kitin düğmesine basıp Minecraft adını yazar ve Waitlist rolünü alır.
+4. Sırası gelen oyuncunun ticketı otomatik açılır. Oyuncu varsayılan 5 dakika içinde **Hazırım** düğmesine basar.
+5. Süre dolarsa oyuncu no-show sayılır; 15 dakika bekletilip sıranın sonuna alınır ve sıradaki ticket açılır.
+6. Hazır oyuncuyu tester sahiplenir ve test bitince kazanılan tieri seçer.
+7. Bot eski kit tier rolünü kaldırıp `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri yeni rolü verir.
+8. Profesyonel sonuç kartı gönderilir; test geçmişi, tester istatistikleri ve 5 günlük yeniden test tarihi kaydedilir.
+9. Ticket transcripti log kanalına gönderilir, ticket kapanır ve sıradaki oyuncu otomatik çağrılır.
 
-Oyuncu **Sıramı Gör** ile iki kitteki kişisel durumunu ve bekleme süresini kontrol edebilir, **Sıradan Ayrıl** ile aktif test başlamadan kuyruğu terk edebilir. Aynı anda yalnızca bir kitin sırasında veya testinde bulunabilir.
+Oyuncu **Sıramı Gör** ile kişisel sırasını ve tahmini beklemeyi, **Test Profilim** ile tier rollerini, son testlerini ve yeniden test tarihlerini görebilir. **Sıradan Ayrıl** yalnız aktif test başlamadan kullanılabilir. Aynı anda yalnızca bir kitin sırasında veya testinde bulunabilir.
 
-Tester oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir, **Testten Çıkar** ile kaldırabilir ve tester panelinden sırayı kapatabilir. Sıra kapalıyken aktif test tamamlanır fakat yeni ticket açılmaz.
+Tester kit başına kapasite ve başlangıç tahminini panelden ayarlar; bot tahmini son tamamlanan testlerin kit-geneli ortalamasıyla iyileştirir. Kendi istatistiklerini ve hâlen yönettiği kiti aynı panelden görür. **Sona At** ve **Testten Çıkar** işlemleri loglanır. Sıra duraklatıldığında veya kapatıldığında aktif test tamamlanabilir fakat yeni ticket açılmaz.
+
+## Yönetim ve güvenlik
+
+- `/kurulum-durum` eksik kanal, kategori, rol hiyerarşisi, kanal bazlı bot izni, ping, özel log, yedek ve Presence ayarlarını gösterir.
+- `/test-yasakla` geçici veya kalıcı test yasağı verir; oyuncuyu kuyruktan çıkarır ve aktif ticketını kapatır.
+- `/sonuc-duzelt` yalnız `Sunucuyu Yönet` iznine sahip yöneticilerin geçmiş sonucu onaylı biçimde düzeltmesini sağlar; eski tier rolü kaldırılıp yeni rol verilir ve işlem kayda alınır.
+- Sıra açma/duraklatma/kapatma, sahiplenme, no-show, çıkarma, sonuç, yasak ve düzeltme işlemleri log kanalına yazılır.
+- Test ve destek ticketları kapanmadan önce en fazla son 1000 mesajlık metin transcripti özel log kanalına kaydedilir. Yükleme başarısız olursa ticket silinmez.
+- Yönetim komutları çalışma anında da yalnız **Sunucuyu Yönet** iznine sahip kişilerce kullanılabilir; DM'de görünmezler. Tester ve destek erişimi yalnız `/kurulum`da seçilen Tester rolüne dayanır.
 
 ## Destek sistemi
 
@@ -58,8 +72,10 @@ Botu `bot` ve `applications.commands` kapsamlarıyla ekleyin. Botta şu izinler 
 - Kanalları Görüntüle
 - Mesaj Gönder
 - Bağlantı Yerleştir
+- Dosya Ekle (Discord durum yedeği ve transcriptler için)
 - Mesaj Geçmişini Oku
 - Mesajları Yönet (tester panelindeki kurulum yedeğini sabitlemek için)
+- Rollerden Bahset / `@everyone` (Waitlist Üye duyurusu için)
 
 Bot rolü, ayarlanan Waitlist rolünün ve tier rollerinin üzerinde olmalıdır.
 
@@ -69,10 +85,15 @@ Gerekli ortam değişkenleri:
 
 - `DISCORD_TOKEN`
 - `CLIENT_ID`
-- `GUILD_ID`
+- `GUILD_ID` (botun kullanılacağı tek Discord sunucusunun ID'si; zorunlu)
 - `DATA_FILE` (varsayılan `./data/state.json`)
+- `READY_TIMEOUT_MINUTES` (varsayılan `5`, 1-60)
+- `NO_SHOW_RETRY_MINUTES` (varsayılan `15`, 1-1440)
+- `ENABLE_PRESENCE_INTENT` (varsayılan `false`)
 
-Kurulum seçimleri Discord'daki tester panelinden otomatik kurtarılır. Kuyrukların, aktif testlerin ve 5 günlük sürelerin de yeniden başlatmada korunması için Render Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` ayarlayın. Tokenı GitHub'a yüklemeyin.
+Bot tüm çalışma verisini Discord'daki özel tester paneline otomatik yedekler ve Render kapanırken son değişiklikleri yazmaya çalışır; Render Persistent Disk zorunlu değildir. İkinci bir yerel kopya isterseniz Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` kullanabilirsiniz. Tokenı GitHub'a yüklemeyin.
+
+Tester çevrimdışı olduğunda açık sıraların otomatik duraklaması için Discord Developer Portal'da **Bot → Privileged Gateway Intents → Presence Intent** seçeneğini açın, ardından Render'da `ENABLE_PRESENCE_INTENT=true` yapın. Portal iznini açmadan ortam değişkenini `true` yapmayın; Discord bağlantıyı reddeder.
 
 Bot, Render Web Service'in deploy kontrolü için `0.0.0.0:$PORT` üzerinde bir sağlık endpointi açar. `/health` isteği botun Discord'a bağlanıp bağlanmadığını JSON olarak gösterir. Render'da servis türü **Web Service**, build komutu `npm ci`, start komutu `npm start` olmalıdır.
 

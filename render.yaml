@@ -15,4 +15,10 @@ services:
         sync: false
       - key: DATA_FILE
         value: ./data/state.json
+      - key: ENABLE_PRESENCE_INTENT
+        value: "false"
+      - key: READY_TIMEOUT_MINUTES
+        value: "5"
+      - key: NO_SHOW_RETRY_MINUTES
+        value: "15"
 

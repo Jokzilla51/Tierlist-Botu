@@ -1,12 +1,13 @@
 {
   "name": "minecraft-tierlist-discord-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Elytra ve Trap test kuyrukları için Discord botu.",
   "main": "src/index.js",
   "scripts": {
     "start": "node scripts/deploy-commands.js && node src/index.js",
     "dev": "node --watch src/index.js",
-    "deploy-commands": "node scripts/deploy-commands.js"
+    "deploy-commands": "node scripts/deploy-commands.js",
+    "test": "node scripts/self-test.js"
   },
   "engines": {
     "node": ">=20.0.0"
