@@ -140,9 +140,13 @@ function waitlistPanel(onlyKit = null) {
   };
 }
 
-function configButtonChunks() {
-  // Yapılandırma Discord'a sabitlenmiş durum yedeğiyle kaydedilir; düğme kimlikleri 100 karakteri aşmamalı.
-  return ['', '', '', ''];
+function configButtonChunks(guildId) {
+  const config = guildConfig(guildId);
+  if (!guildId || !config || !BACKUP_CONFIG_KEYS.every((key) => config[key])) return ['', '', '', ''];
+  const encode = (id) => id ? BigInt(id).toString(36) : '0';
+  const payload = ['v3', encode(guildId), ...BACKUP_CONFIG_KEYS.map((key) => encode(config[key]))].join('|');
+  const chunkSize = Math.ceil(payload.length / 4);
+  return [0, 1, 2, 3].map((index) => payload.slice(index * chunkSize, (index + 1) * chunkSize));
 }
 
 function testerPanel(guildId) {
@@ -226,10 +230,24 @@ async function ensurePanel(channel, customId, payload) {
   return existing ? existing.edit(payload) : channel.send(payload);
 }
 
+function base36ToSnowflake(value) {
+  let result = 0n;
+  for (const char of value.toLowerCase()) {
+    const digit = char >= '0' && char <= '9' ? char.charCodeAt(0) - 48 : char.charCodeAt(0) - 87;
+    if (digit < 0 || digit >= 36) return null;
+    result = result * 36n + BigInt(digit);
+  }
+  return result.toString();
+}
+
 function parseConfigFromPanel(message, guild) {
   if (message.author.id !== client.user.id) return null;
   const customIds = message.components.flatMap((row) => row.components.map((component) => component.customId).filter(Boolean));
   const formats = [
+    {
+      schema: 'v3', keys: BACKUP_CONFIG_KEYS, encoded: true,
+      prefixes: ['queue_action:elytra:open:cfg0:', 'queue_action:elytra:pause:cfg1:', 'queue_action:elytra:close:cfg2:', 'queue_action:trap:open:cfg3:']
+    },
     {
       schema: 'v2', keys: BACKUP_CONFIG_KEYS,
       prefixes: ['queue_action:elytra:open:cfg0:', 'queue_action:elytra:pause:cfg1:', 'queue_action:elytra:close:cfg2:', 'queue_action:trap:open:cfg3:']
@@ -246,8 +264,9 @@ function parseConfigFromPanel(message, guild) {
     const values = chunks.join('').split('|');
     if (values.length !== format.keys.length + 2 || values[0] !== format.schema || values[1] !== guild.id) continue;
     const ids = values.slice(2);
-    if (!ids.every((id, index) => (format.keys[index] === 'auditLogChannelId' && id === '0') || /^\d{15,20}$/.test(id))) continue;
-    config = Object.fromEntries(format.keys.map((key, index) => [key, ids[index] === '0' ? null : ids[index]]));
+    const decodedIds = format.encoded ? ids.map((id) => id === '0' ? '0' : base36ToSnowflake(id)) : ids;
+    if (!decodedIds.every((id, index) => id && ((format.keys[index] === 'auditLogChannelId' && id === '0') || /^\d{15,20}$/.test(id)))) continue;
+    config = Object.fromEntries(format.keys.map((key, index) => [key, decodedIds[index] === '0' ? null : decodedIds[index]]));
     break;
   }
   if (!config) return null;
@@ -950,7 +969,7 @@ async function applyQueueAction(interaction, kit, action) {
   await refreshWaitlistPanel(interaction.guild).catch((error) => console.warn('Waitlist paneli yenilenemedi:', error.message));
   const join = configuredChannel(interaction.guild, kit === 'elytra' ? 'elytraWaitlistPanelChannelId' : 'trapWaitlistPanelChannelId') || configuredChannel(interaction.guild, 'waitlistPanelChannelId');
   const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
-  const panelAnnouncement = shouldPing && join ? join : announcement;
+  const panelAnnouncement = (action === 'open' || action === 'close') && join ? join : announcement;
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
   const actionText = action === 'open' ? 'açıldı' : action === 'pause' ? 'duraklatıldı' : 'kapatıldı';
   const icon = action === 'open' ? '🟢' : action === 'pause' ? '🟡' : '🔴';
