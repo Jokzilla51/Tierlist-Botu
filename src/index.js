@@ -949,11 +949,12 @@ async function applyQueueAction(interaction, kit, action) {
   await interaction.update(testerPanel(interaction.guild.id));
   await refreshWaitlistPanel(interaction.guild).catch((error) => console.warn('Waitlist paneli yenilenemedi:', error.message));
   const join = configuredChannel(interaction.guild, kit === 'elytra' ? 'elytraWaitlistPanelChannelId' : 'trapWaitlistPanelChannelId') || configuredChannel(interaction.guild, 'waitlistPanelChannelId');
-  const announcement = join || configuredChannel(interaction.guild, 'announcementChannelId');
+  const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
+  const panelAnnouncement = shouldPing && join ? join : announcement;
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
   const actionText = action === 'open' ? 'açıldı' : action === 'pause' ? 'duraklatıldı' : 'kapatıldı';
   const icon = action === 'open' ? '🟢' : action === 'pause' ? '🟡' : '🔴';
-  if (announcement) await announcement.send({
+  if (panelAnnouncement) await panelAnnouncement.send({
     content: `${shouldPing && role ? `<@&${role.id}>\n` : ''}${icon} **${kitName(kit)} sırası ${actionText}!**\nTester: <@${interaction.user.id}>\nSunucu: \`${store.get().serverAddress || 'Ayarlanmadı'}\`${action === 'open' && join ? `\nKatılım: <#${join.id}>` : ''}`,
     allowedMentions: { roles: shouldPing && role ? [role.id] : [], users: [interaction.user.id] }
   }).catch((error) => console.warn('Sıra duyurusu gönderilemedi:', error.message));
