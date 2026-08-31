@@ -47,12 +47,39 @@ function formatRemaining(ms) {
 }
 
 function waitlistPanel() {
+  const anyOpen = Object.keys(KITS).some((kit) => queue(kit).testerId);
+  const kitFields = Object.keys(KITS).map((kit) => {
+    const current = queue(kit);
+    const active = activeTests(kit)[0];
+    return {
+      name: `${kit === 'elytra' ? '🪽' : '🪤'} ${kitName(kit)} • ${current.testerId ? '🟢 AÇIK' : '🔴 KAPALI'}`,
+      value: `**Tester:** ${current.testerId ? `<@${current.testerId}>` : 'Aktif değil'}\n**Bekleyen:** ${current.entries.length} kişi\n**Testte:** ${active ? '1 oyuncu' : 'Yok'}`,
+      inline: true
+    };
+  });
   return {
-    embeds: [new EmbedBuilder().setColor(0x57F287).setTitle('📝 Tierlist Test Sırası').setDescription('Minecraft adını girip açık olan **Elytra** veya **Trap** sırasına katıl. Sıran geldiğinde özel test ticketın otomatik açılır.').setFooter({ text: 'Sonuçtan sonra aynı kit için 5 gün bekleme süresi vardır.' })],
-    components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('join_waitlist').setLabel('Sıraya Katıl').setStyle(ButtonStyle.Success).setEmoji('📝'),
-      new ButtonBuilder().setCustomId('waitlist_role_toggle').setLabel('Bildirim Rolü Al / Bırak').setStyle(ButtonStyle.Secondary).setEmoji('🔔')
-    )]
+    embeds: [new EmbedBuilder()
+      .setColor(anyOpen ? 0x57F287 : 0x747F8D)
+      .setTitle('🏆 Tierlist Test Başvurusu')
+      .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.')
+      .addFields(
+        ...kitFields,
+        { name: '🌐 Sunucu', value: `\`${store.get().serverAddress || 'Henüz ayarlanmadı'}\``, inline: false },
+        { name: '📌 Nasıl çalışır?', value: '`1.` Açık kiti seç  →  `2.` Minecraft adını yaz  →  `3.` Sıranı bekle  →  `4.` Ticketta test ol' }
+      )
+      .setFooter({ text: 'Aynı anda yalnızca bir sırada bulunabilirsin • Yeniden test süresi 5 gündür' })
+      .setTimestamp()],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('waitlist_join:elytra').setLabel("Elytra'ya Katıl").setStyle(ButtonStyle.Success).setEmoji('🪽').setDisabled(!queue('elytra').testerId),
+        new ButtonBuilder().setCustomId('waitlist_join:trap').setLabel("Trap'e Katıl").setStyle(ButtonStyle.Success).setEmoji('🪤').setDisabled(!queue('trap').testerId)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('waitlist_status').setLabel('Sıramı Gör').setStyle(ButtonStyle.Primary).setEmoji('🔎'),
+        new ButtonBuilder().setCustomId('waitlist_leave').setLabel('Sıradan Ayrıl').setStyle(ButtonStyle.Danger).setEmoji('🚪'),
+        new ButtonBuilder().setCustomId('waitlist_role_toggle').setLabel('Sıra Bildirimleri').setStyle(ButtonStyle.Secondary).setEmoji('🔔')
+      )
+    ]
   };
 }
 
@@ -112,14 +139,20 @@ function testControls(kit, userId, claimedBy = null) {
 }
 
 async function ensurePanel(channel, customId, payload) {
+  const acceptedIds = Array.isArray(customId) ? customId : [customId];
   const messages = await channel.messages.fetch({ limit: 50 });
-  const existing = messages.find((message) => message.author.id === client.user.id && message.components.some((row) => row.components.some((component) => component.customId === customId)));
+  const existing = messages.find((message) => message.author.id === client.user.id && message.components.some((row) => row.components.some((component) => acceptedIds.includes(component.customId))));
   return existing ? existing.edit(payload) : channel.send(payload);
 }
 
 async function refreshTesterPanel(guild) {
   const channel = configuredChannel(guild, 'testerPanelChannelId');
   if (channel) await ensurePanel(channel, 'queue_toggle:elytra', testerPanel());
+}
+
+async function refreshWaitlistPanel(guild) {
+  const channel = configuredChannel(guild, 'waitlistPanelChannelId');
+  if (channel) await ensurePanel(channel, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
 }
 
 async function deployConfiguredPanels(guild) {
@@ -129,7 +162,7 @@ async function deployConfiguredPanels(guild) {
   const tester = configuredChannel(guild, 'testerPanelChannelId');
   const support = configuredChannel(guild, 'supportPanelChannelId');
   if (!waitlist || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
-  await ensurePanel(waitlist, 'join_waitlist', waitlistPanel());
+  await ensurePanel(waitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
   await ensurePanel(tester, 'queue_toggle:elytra', testerPanel());
   await ensurePanel(support, 'support_create:application', supportPanel());
 }
@@ -147,6 +180,7 @@ client.once(Events.ClientReady, async (ready) => {
   for (const guild of ready.guilds.cache.values()) {
     try {
       if (!isConfigured(guild)) continue;
+      await deployConfiguredPanels(guild);
       for (const kit of Object.keys(KITS)) {
         recoverMissingTestTickets(guild, kit);
         await advanceQueue(guild, kit);
@@ -158,7 +192,10 @@ client.once(Events.ClientReady, async (ready) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) return handleAdminCommand(interaction);
-    if (interaction.isButton() && interaction.customId === 'join_waitlist') return showJoinModal(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('waitlist_join:')) return showJoinModal(interaction, interaction.customId.split(':')[1]);
+    if (interaction.isButton() && interaction.customId === 'join_waitlist') return interaction.reply({ content: 'Panel güncellendi. Yeni kit düğmelerini kullan.', ephemeral: true });
+    if (interaction.isButton() && interaction.customId === 'waitlist_status') return showWaitlistStatus(interaction);
+    if (interaction.isButton() && interaction.customId === 'waitlist_leave') return leaveWaitlist(interaction);
     if (interaction.isButton() && interaction.customId === 'waitlist_role_toggle') return toggleWaitlistRole(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('queue_toggle:')) return toggleQueue(interaction);
     if (interaction.isButton() && interaction.customId === 'server_address') return showServerModal(interaction);
@@ -168,10 +205,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith('support_create:')) return showSupportModal(interaction);
     if (interaction.isButton() && interaction.customId === 'support_claim') return claimSupport(interaction);
     if (interaction.isButton() && interaction.customId === 'support_close') return closeSupport(interaction);
-    if (interaction.isModalSubmit() && interaction.customId === 'minecraft_name') return showKitPicker(interaction);
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('minecraft_name:')) return addToQueue(interaction);
     if (interaction.isModalSubmit() && interaction.customId === 'server_address_modal') return saveServerAddress(interaction);
     if (interaction.isModalSubmit() && interaction.customId.startsWith('support_modal:')) return createSupportTicket(interaction);
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('kit_pick:')) return addToQueue(interaction);
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('test_result:')) return finishTest(interaction);
   } catch (error) {
     console.error(error);
@@ -185,6 +221,7 @@ async function handleAdminCommand(interaction) {
     store.get().serverAddress = interaction.options.getString('adres').trim();
     store.save();
     await refreshTesterPanel(interaction.guild);
+    await refreshWaitlistPanel(interaction.guild);
     return interaction.reply({ content: `✅ Sunucu adresi \`${store.get().serverAddress}\` olarak kaydedildi.`, ephemeral: true });
   }
   if (interaction.commandName === 'panelleri-yenile') {
@@ -256,6 +293,7 @@ async function toggleQueue(interaction) {
     current.testerId = null;
     store.save();
     await interaction.update(testerPanel());
+    await refreshWaitlistPanel(interaction.guild);
     return interaction.followUp({ content: `🔴 ${kitName(kit)} sırası kapatıldı. Aktif test tamamlanabilir.`, ephemeral: true });
   }
   current.testerId = interaction.user.id;
@@ -264,6 +302,7 @@ async function toggleQueue(interaction) {
   if (shouldPing) current.lastAnnouncementAt = now;
   store.save();
   await interaction.update(testerPanel());
+  await refreshWaitlistPanel(interaction.guild);
   const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
   const join = configuredChannel(interaction.guild, 'waitlistPanelChannelId');
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
@@ -285,52 +324,78 @@ async function saveServerAddress(interaction) {
   store.get().serverAddress = interaction.fields.getTextInputValue('address').trim();
   store.save();
   await refreshTesterPanel(interaction.guild);
+  await refreshWaitlistPanel(interaction.guild);
   return interaction.reply({ content: `✅ Sunucu adresi \`${store.get().serverAddress}\` olarak kaydedildi.`, ephemeral: true });
 }
 
-function showJoinModal(interaction) {
-  const modal = new ModalBuilder().setCustomId('minecraft_name').setTitle('Minecraft Adın');
+function showJoinModal(interaction, kit) {
+  if (!KITS[kit] || !isConfigured(interaction.guild)) return interaction.reply({ content: 'Waitlist sistemi henüz kurulmamış.', ephemeral: true });
+  if (!queue(kit).testerId) return interaction.reply({ content: `${kitName(kit)} sırası şu an kapalı.`, ephemeral: true });
+  if (isWaitingOrTesting(interaction.user.id)) return interaction.reply({ content: 'Aynı anda yalnızca bir sırada veya testte bulunabilirsin. **Sıramı Gör** düğmesini kullan.', ephemeral: true });
+  const remaining = cooldownEndsAt(kit, interaction.user.id) - Date.now();
+  if (remaining > 0) return interaction.reply({ content: `${kitName(kit)} için yeniden test süren devam ediyor: **${formatRemaining(remaining)}**.`, ephemeral: true });
+  const modal = new ModalBuilder().setCustomId(`minecraft_name:${kit}`).setTitle(`${kitName(kit)} Sırasına Katıl`);
   modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Minecraft kullanıcı adı').setPlaceholder('Örn: Steve').setRequired(true).setMinLength(3).setMaxLength(16).setStyle(TextInputStyle.Short)));
   return interaction.showModal(modal);
 }
 
-async function showKitPicker(interaction) {
-  const name = interaction.fields.getTextInputValue('name').trim();
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return interaction.reply({ content: 'Geçerli bir Minecraft adı gir.', ephemeral: true });
-  const openKits = Object.keys(KITS).filter((kit) => queue(kit).testerId);
-  if (!openKits.length) return interaction.reply({ content: 'Şu an açık sıra yok. Bildirim rolünü alırsan açıldığında haber alırsın.', ephemeral: true });
+async function showWaitlistStatus(interaction) {
   const now = Date.now();
-  const available = openKits.filter((kit) => cooldownEndsAt(kit, interaction.user.id) <= now && !activeTests(kit).some((entry) => entry.userId === interaction.user.id));
-  if (!available.length) {
-    if (openKits.some((kit) => activeTests(kit).some((entry) => entry.userId === interaction.user.id))) return interaction.reply({ content: 'Testin zaten devam ediyor.', ephemeral: true });
-    const expiry = Math.min(...openKits.map((kit) => cooldownEndsAt(kit, interaction.user.id)).filter((time) => time > now));
-    return interaction.reply({ content: `5 günlük bekleme süren devam ediyor: **${formatRemaining(expiry - now)}**.`, ephemeral: true });
+  const fields = Object.keys(KITS).map((kit) => {
+    const position = queue(kit).entries.findIndex((entry) => entry.userId === interaction.user.id);
+    const active = activeTests(kit).find((entry) => entry.userId === interaction.user.id);
+    const remaining = cooldownEndsAt(kit, interaction.user.id) - now;
+    let value = 'Bu sırada değilsin.';
+    if (active) value = `🧪 Testin devam ediyor${active.ticketId ? ` • <#${active.ticketId}>` : ''}`;
+    else if (position >= 0) value = `⏳ Sıran: **${position + 1}/${queue(kit).entries.length}**`;
+    else if (remaining > 0) value = `🔒 Yeniden test: **${formatRemaining(remaining)}**`;
+    return { name: `${kit === 'elytra' ? '🪽' : '🪤'} ${kitName(kit)}`, value, inline: true };
+  });
+  return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🔎 Kişisel Sıra Durumun').addFields(...fields).setTimestamp()], ephemeral: true });
+}
+
+async function leaveWaitlist(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  const active = Object.keys(KITS).find((kit) => activeTests(kit).some((entry) => entry.userId === interaction.user.id));
+  if (active) return interaction.editReply(`Aktif ${kitName(active)} testinden panelle ayrılamazsın. Test ticketındaki tester ile görüş.`);
+  const removedFrom = [];
+  for (const kit of Object.keys(KITS)) {
+    const before = queue(kit).entries.length;
+    queue(kit).entries = queue(kit).entries.filter((entry) => entry.userId !== interaction.user.id);
+    if (queue(kit).entries.length !== before) removedFrom.push(kitName(kit));
   }
-  const menu = new StringSelectMenuBuilder().setCustomId(`kit_pick:${name}`).setPlaceholder('Kit seç').addOptions(available.map((kit) => ({ label: kitName(kit), value: kit, description: `${queue(kit).entries.length} kişi bekliyor` })));
-  return interaction.reply({ content: 'Test olmak istediğin kiti seç:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+  if (!removedFrom.length) return interaction.editReply('Şu an herhangi bir test sırasında değilsin.');
+  store.save();
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const role = configuredRole(interaction.guild, 'waitlistRoleId');
+  if (role && !store.get().notificationSubscribers.includes(interaction.user.id)) await member.roles.remove(role).catch(() => null);
+  await refreshTesterPanel(interaction.guild);
+  await refreshWaitlistPanel(interaction.guild);
+  return interaction.editReply(`🚪 **${removedFrom.join(', ')}** sırasından ayrıldın.`);
 }
 
 async function addToQueue(interaction) {
-  await interaction.deferUpdate();
-  const minecraftName = interaction.customId.slice('kit_pick:'.length);
-  const kit = interaction.values[0];
+  await interaction.deferReply({ ephemeral: true });
+  const kit = interaction.customId.split(':')[1];
+  const minecraftName = interaction.fields.getTextInputValue('name').trim();
   const current = queue(kit);
-  if (!current.testerId) return interaction.editReply({ content: 'Sıra az önce kapandı.', components: [] });
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) return interaction.editReply('Geçerli bir Minecraft adı gir.');
+  if (!current.testerId) return interaction.editReply('Sıra az önce kapandı.');
+  if (isWaitingOrTesting(interaction.user.id)) return interaction.editReply('Aynı anda yalnızca bir sırada veya testte bulunabilirsin.');
   const remaining = cooldownEndsAt(kit, interaction.user.id) - Date.now();
-  if (remaining > 0) return interaction.editReply({ content: `Yeniden test için **${formatRemaining(remaining)}** beklemelisin.`, components: [] });
-  if (activeTests(kit).some((entry) => entry.userId === interaction.user.id)) return interaction.editReply({ content: 'Testin zaten devam ediyor.', components: [] });
-  if (current.entries.some((entry) => entry.userId === interaction.user.id)) return interaction.editReply({ content: `Zaten ${kitName(kit)} sırasındasın.`, components: [] });
+  if (remaining > 0) return interaction.editReply(`Yeniden test için **${formatRemaining(remaining)}** beklemelisin.`);
 
   const member = await interaction.guild.members.fetch(interaction.user.id);
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
-  if (!role) return interaction.editReply({ content: 'Waitlist rolü bulunamadı. Yönetici `/kurulum` komutunu yeniden kullanmalı.', components: [] });
+  if (!role) return interaction.editReply('Waitlist rolü bulunamadı. Yönetici `/kurulum` komutunu yeniden kullanmalı.');
   await member.roles.add(role);
   current.entries.push({ userId: interaction.user.id, minecraftName, joinedAt: Date.now() });
   store.save();
   const position = current.entries.length;
   const ticket = await advanceQueue(interaction.guild, kit);
   await refreshTesterPanel(interaction.guild);
-  return interaction.editReply({ content: ticket?.topic?.includes(interaction.user.id) ? `✅ Sıran geldi; ticketın: <#${ticket.id}>` : `✅ ${kitName(kit)} sırasına eklendin. Sıran: **${position}**`, components: [] });
+  await refreshWaitlistPanel(interaction.guild);
+  return interaction.editReply(ticket?.topic?.includes(interaction.user.id) ? `✅ Sıran geldi; ticketın: <#${ticket.id}>` : `✅ **${kitName(kit)}** sırasına eklendin. Sıran: **${position}**`);
 }
 
 async function advanceQueue(guild, kit) {
@@ -358,6 +423,7 @@ async function advanceQueue(guild, kit) {
       ).setTimestamp()], components: testControls(kit, next.userId)
     });
     await refreshTesterPanel(guild);
+    await refreshWaitlistPanel(guild);
     return ticket;
   } catch (error) {
     activeTests(kit).splice(activeTests(kit).indexOf(active), 1);
@@ -417,6 +483,7 @@ async function finishTest(interaction) {
   await interaction.editReply({ embeds: [resultEmbed], components: [] });
   await interaction.channel.send('✅ Sonuç ve rol kaydedildi. Ticket 10 saniye içinde kapanacak; sıradaki oyuncu otomatik çağrılıyor.');
   await refreshTesterPanel(interaction.guild);
+  await refreshWaitlistPanel(interaction.guild);
   await advanceQueue(interaction.guild, kit);
   setTimeout(() => interaction.channel.delete('Test completed').catch(console.error), 10000);
 }
@@ -431,6 +498,7 @@ async function skipTest(interaction) {
   store.save();
   await interaction.reply('⏭️ Oyuncu sıranın sonuna gönderildi; sıradaki ticket açılıyor.');
   await refreshTesterPanel(interaction.guild);
+  await refreshWaitlistPanel(interaction.guild);
   await advanceQueue(interaction.guild, kit);
   setTimeout(() => interaction.channel.delete('Moved to queue end').catch(console.error), 5000);
 }
@@ -447,6 +515,7 @@ async function removeTest(interaction) {
   if (member && role && !store.get().notificationSubscribers.includes(userId) && !isWaitingOrTesting(userId)) await member.roles.remove(role);
   await interaction.reply('✖️ Oyuncu testten çıkarıldı; sıradaki ticket açılıyor.');
   await refreshTesterPanel(interaction.guild);
+  await refreshWaitlistPanel(interaction.guild);
   await advanceQueue(interaction.guild, kit);
   setTimeout(() => interaction.channel.delete('Removed from test').catch(console.error), 5000);
 }
