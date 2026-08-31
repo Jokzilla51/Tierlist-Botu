@@ -1,83 +1,57 @@
 # Minecraft Tierlist Discord Bot
 
-Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar; bot Waitlist Üye rolünü duyurur, oyuncular panelden Minecraft adıyla sıraya katılır ve her katılımda özel ticket oluşur.
+Elytra ve Trap testleri için tamamen panel ve düğmelerle çalışan Discord botu. Slash komutu gerekmez.
 
-## Özellikler
+## Otomatik akış
 
-- Yalnızca **Elytra** ve **Trap** için ayrı kuyruklar
-- `/queue open` ile aktif tester'a bağlı sıra açma, `/queue close` ile kapatma
-- `#waitlist-sira-bekleme` kanalında **Waitlist Üye** rolüne duyuru
-- Aynı kit için 10 dakika içinde tekrar rol pingini engelleyen spam koruması
-- `#waitlist-katil` kanalındaki katılım paneli: Minecraft adı + kit seçimi
-- Açık sıra yoksa katılım engeli; sıra kapanınca yeni katılım engeli
-- Her katılımda oyuncuya özel, gizli ticket kanalı
-- `/next` ile sıradaki oyuncuyu çağırma
-- `/server` ile Minecraft sunucu adresi ayarlama
-- Tester rolü veya **Mesajları Yönet** izni ile kuyruk kontrolü; sunucu yöneticisi müdahale edebilir
-- Beş kategorili, düğmeli destek sistemi: Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer
-- Kullanıcı başına tek açık destek talebi, yetkili sahiplenme ve güvenli kapatma düğmeleri
-- `/test-sonuc` ile ekran görüntülerindeki stile benzer tier sonuç kartları
-- Sıraya katılan kullanıcıya otomatik `Waitlist Üye` rolü
-- Test sonucu girilince otomatik `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri kit-tier rolü
-- Yeni sonuçta aynı kite ait eski tier rolünü kaldırıp yeni rolü verme
-- Sonuçtan sonra aynı kit için 5 günlük yeniden test bekleme süresi
-- `/setup` ile gerekli rollerin, kategorilerin, kanalların ve panellerin otomatik kurulumu
+1. Bot açılınca gerekli rol, kategori, kanal ve panelleri kendisi oluşturur.
+2. Tester `#tester-panel` kanalından Elytra veya Trap sırasını açar.
+3. Oyuncu `#waitlist-katil` paneline Minecraft adını girip açık kiti seçer ve `Waitlist Üye` rolünü alır.
+4. İlk oyuncunun özel test ticketı otomatik açılır. Diğer oyuncular sırada bekler.
+5. Tester ticketta **Testi Sahiplen** düğmesine basar.
+6. Test bitince kazanılan tier dropdown menüsünden seçilir.
+7. Bot eski kit tier rolünü kaldırır ve `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri yeni rolü otomatik verir.
+8. Sonuç `#test-sonuclari` kanalına gönderilir, ticket kapanır ve sıradaki oyuncunun ticketı otomatik açılır.
+9. Oyuncu aynı kit için 5 gün geçmeden yeniden sıraya giremez.
 
-## Discord kurulumu
+Tester ayrıca oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir veya **Testten Çıkar** ile mevcut testten kaldırabilir. Sıra kapatıldığında aktif test tamamlanabilir fakat yeni ticket açılmaz.
 
-1. Discord Developer Portal'da bir uygulama ve bot oluşturun.
-2. Botu sunucunuza eklerken `bot` ve `applications.commands` kapsamlarını seçin. Bot için en az **Kanalları Yönet**, **Rolleri Yönet**, **Mesaj Gönder**, **Bağlantı Yerleştir**, **Mesaj Geçmişini Oku** izinlerini verin. Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır.
-3. En kolay kurulum için bot sunucuya girdikten sonra `/setup` komutunu kullanın. Şunlar otomatik oluşturulur:
-   - `#waitlist-sira-bekleme` — sıra duyuruları
-   - `#waitlist-katil` — katılım paneli
-   - `#test-sonuclari` — tier sonuç kartları
-   - `#destek` — kategori düğmeli destek paneli
-   - `WAITLIST-TICKETLER` ve `DESTEK-TALEPLERİ` kategorileri
-   - `Waitlist Üye` ve `Tester` rolleri
-4. Tester rolünü ilgili testerlara verin. Destek ekibi için adı `Destek`, `Support`, `Moderator` veya `Yetkili` içeren bir rol kullanabilirsiniz.
-5. `.env.example` dosyasını `.env` olarak kopyalayıp değerleri yazın.
-6. Bağımlılıkları kurun: `npm install`
-7. Botu çalıştırın: `npm start` (komutlar başlangıçta otomatik kaydedilir).
-8. `/setup` kullanın; ardından `/server address:play.ornek.com` ile adresi belirleyin.
+## Otomatik oluşturulanlar
 
-## Kullanım
+- `Tester` ve `Waitlist Üye` rolleri
+- `#tester-panel`
+- `#waitlist-katil`
+- `#waitlist-sira-bekleme`
+- `#test-sonuclari`
+- `#destek`
+- `WAITLIST-TICKETLER` ve `DESTEK-TALEPLERİ` kategorileri
+- Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer destek ticketları
 
-```text
-/queue open kit:Elytra
-/queue status
-/next kit:Elytra
-/queue close kit:Elytra
-/server address:play.sunucunuz.com
-/test-sonuc minecraft-adi:Steve kit:Elytra onceki-rank:"Low Tier 3" kazanilan-rank:"Low Tier 2" discord-uyesi:@Steve
-/support-panel
-/setup
-```
+`#waitlist-katil` panelindeki bildirim düğmesiyle kullanıcılar sıra açılış bildirimlerini açıp kapatabilir. Minecraft sunucu adresi `#tester-panel` üzerindeki ayar düğmesinden girilir.
 
-Her kitte aynı anda yalnızca bir tester aktif olabilir. Sıra kapandığında mevcut bekleyenler silinmez; tekrar açıldığında sırada kalırlar. Bir kullanıcı kit başına yalnızca bir kez sırada olabilir.
+## Discord izinleri
 
-`/test-sonuc` komutunda Discord üyesi zorunludur; tier rolü bu üyeye verilir. Bölge ve hedef kanal isteğe bağlıdır. Kanal seçilmezse bot önce kit adına özel sonucu (`#elytra-sonuclari` veya `#trap-sonuclari`), sonra `#test-sonuclari` kanalını arar.
+Botu `bot` ve `applications.commands` kapsamlarıyla sunucuya ekleyin. Şu izinleri verin:
 
-Tester `/next` ile oyuncuyu çağırdığında oyuncu aktif test durumuna geçer. `/test-sonuc` girildiğinde bot eski kit tier rolünü kaldırır, yeni rolü verir, gerek kalmadıysa `Waitlist Üye` rolünü kaldırır ve aynı kit için 5 günlük bekleme süresini başlatır. Bekleme süresi devam eden kullanıcı panelden yeniden katılmaya çalışırsa kalan süreyi görür.
+- Kanalları Yönet
+- Rolleri Yönet
+- Mesaj Gönder
+- Bağlantı Yerleştir
+- Mesaj Geçmişini Oku
+- Kanalları Görüntüle
 
-## Render ile yayınlama
+Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır. Otomatik oluşturulan `Tester` rolünü testerlara yönetici vermelidir.
 
-1. Bu klasörü yeni bir GitHub reposuna yükleyin.
-2. Render'da **New → Blueprint** seçip GitHub reposunu bağlayın. Render, `render.yaml` dosyasını algılar.
-3. Oluşan **Worker** için `DISCORD_TOKEN`, `CLIENT_ID` ve `GUILD_ID` gizli ortam değişkenlerini girin.
-4. Deploy'u başlatın. Bot, başlangıçta slash komutlarını otomatik kaydeder; `GUILD_ID` varsa komutlar hemen görünür.
+## Render
 
-> Render ücretsiz worker'ları uyuyabilir/değişebilir ve yerel disk kalıcı değildir. Kuyrukların yeniden başlatmada kaybolmaması için ücretli planda Persistent Disk bağlayıp `DATA_FILE` değerini disk üzerindeki bir yola (ör. `/var/data/state.json`) ayarlayın. Daha yüksek güvenilirlik için sonraki adımda PostgreSQL veya Redis eklenebilir.
+Render Blueprint olarak bu repoyu bağlayın ve şu ortam değişkenlerini girin:
 
-## GitHub'a yükleme
+- `DISCORD_TOKEN`
+- `CLIENT_ID`
+- `GUILD_ID`
+- `DATA_FILE` (varsayılan `./data/state.json`)
 
-```text
-git init
-git add .
-git commit -m "Initial Discord tierlist bot"
-git branch -M main
-git remote add origin https://github.com/KULLANICI_ADI/REPO_ADI.git
-git push -u origin main
-```
+Başlangıç sırasında eski slash komutları temizlenir ve bot tüm panelleri otomatik hazırlar.
 
-`.env` dosyasını asla GitHub'a yüklemeyin; `.gitignore` bunu engeller.
+Kuyrukların ve 5 günlük bekleme sürelerinin yeniden başlatmada korunması için Render Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` ayarlayın. Tokenı GitHub'a yüklemeyin.
 
