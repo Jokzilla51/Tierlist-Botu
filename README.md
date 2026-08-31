@@ -18,7 +18,7 @@ Tester ayrıca oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir veya **Te
 
 ## Otomatik oluşturulanlar
 
-- `Tester` ve `Waitlist Üye` rolleri
+- Sunucudaki mevcut tester rolü (adında `tester` geçen en yüksek rol) ve `Waitlist Üye` rolü
 - `#tester-panel`
 - `#waitlist-katil`
 - `#waitlist-sira-bekleme`
@@ -40,7 +40,7 @@ Botu `bot` ve `applications.commands` kapsamlarıyla sunucuya ekleyin. Şu izinl
 - Mesaj Geçmişini Oku
 - Kanalları Görüntüle
 
-Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır. Otomatik oluşturulan `Tester` rolünü testerlara yönetici vermelidir.
+Bot, sunucuda adında `tester` geçen mevcut bir rol varsa onu kullanır ve yeni rol oluşturmaz. Birden fazla tester rolü varsa rol listesindeki en yüksek olanı kullanır. Hiç yoksa `Tester` rolünü oluşturur. Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır.
 
 ## Render
 
