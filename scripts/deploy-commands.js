@@ -54,9 +54,9 @@ const commands = [
         { name: 'High Tier 4', value: 'High Tier 4' }, { name: 'Low Tier 4', value: 'Low Tier 4' }, { name: 'High Tier 5', value: 'High Tier 5' },
         { name: 'Low Tier 5', value: 'Low Tier 5' }
       ))
+    .addUserOption((option) => option.setName('discord-uyesi').setDescription('Test edilen Discord üyesi ve rolün verileceği kişi').setRequired(true))
     .addStringOption((option) => option.setName('bolge').setDescription('Oyuncunun bölgesi').setRequired(false)
       .addChoices({ name: 'TR', value: 'TR' }, { name: 'EU', value: 'EU' }, { name: 'NA', value: 'NA' }, { name: 'AS', value: 'AS' }))
-    .addUserOption((option) => option.setName('discord-uyesi').setDescription('Sonuçta etiketlenecek Discord üyesi').setRequired(false))
     .addChannelOption((option) => option.setName('kanal').setDescription('Sonucun gönderileceği kanal').setRequired(false)
       .addChannelTypes(0))
 ].map((command) => command.toJSON());
