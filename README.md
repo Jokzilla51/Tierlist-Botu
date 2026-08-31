@@ -30,7 +30,7 @@ Diğer kurulum komutları:
 ## Otomatik test akışı
 
 1. Tester, seçtiğiniz tester panelinden Elytra veya Trap sırasını açar.
-2. Oyuncu waitlist paneline Minecraft adını girip açık kiti seçer ve ayarlanan Waitlist rolünü alır.
+2. Waitlist paneli Elytra/Trap durumunu, testerı, bekleyen sayısını ve sunucu adresini canlı gösterir. Oyuncu açık kitin doğrudan katılım düğmesine basıp Minecraft adını yazar ve ayarlanan Waitlist rolünü alır.
 3. İlk oyuncunun ticketı seçilen test kategorisinde otomatik açılır.
 4. Tester **Testi Sahiplen** düğmesine basar.
 5. Test bitince kazanılan tier dropdown menüsünden seçilir.
@@ -38,6 +38,8 @@ Diğer kurulum komutları:
 7. Sonuç seçilen sonuç kanalına gönderilir.
 8. Ticket kapanır ve sıradaki oyuncunun ticketı otomatik açılır.
 9. Oyuncu aynı kit için 5 gün geçmeden tekrar sıraya giremez.
+
+Oyuncu **Sıramı Gör** ile iki kitteki kişisel durumunu ve bekleme süresini kontrol edebilir, **Sıradan Ayrıl** ile aktif test başlamadan kuyruğu terk edebilir. Aynı anda yalnızca bir kitin sırasında veya testinde bulunabilir.
 
 Tester oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir, **Testten Çıkar** ile kaldırabilir ve tester panelinden sırayı kapatabilir. Sıra kapalıyken aktif test tamamlanır fakat yeni ticket açılmaz.
 
