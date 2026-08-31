@@ -6,9 +6,19 @@ if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN tanımlı değil.
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const KITS = { elytra: 'Elytra', trap: 'Trap' };
 const PING_COOLDOWN_MS = 10 * 60 * 1000;
+const SUPPORT_TYPES = {
+  application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary, description: 'Sunucu ekibine başvuru yapmak için' },
+  high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success, description: 'Tier testi için başvuru' },
+  complaint: { label: 'Şikayet', emoji: '📢', style: ButtonStyle.Danger, description: 'Şikayet ve bildirimler için' },
+  partnership: { label: 'Reklam - Partnerlik', emoji: '🤝', style: ButtonStyle.Secondary, description: 'Reklam ve ortaklık teklifleri' },
+  other: { label: 'Diğer', emoji: '❓', style: ButtonStyle.Secondary, description: 'Diğer konular için' }
+};
 
 function isTester(member) {
   return member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /tester/i.test(role.name));
+}
+function isStaff(member) {
+  return member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.some((role) => /(tester|destek|support|moderator|yetkili)/i.test(role.name));
 }
 function kitName(kit) { return KITS[kit]; }
 function queue(kit) { return store.get().queues[kit]; }
@@ -20,14 +30,30 @@ function panel() {
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('join_waitlist').setLabel('Sıraya Katıl').setStyle(ButtonStyle.Success).setEmoji('📝'))]
   };
 }
-function ticketOverwrites(guild, userId) {
-  const testerRoles = guild.roles.cache.filter((role) => /tester/i.test(role.name));
+function supportPanel() {
+  const lines = Object.values(SUPPORT_TYPES).map((type) => `${type.emoji} **${type.label}**\n${type.description}`).join('\n\n');
+  const buttons = Object.entries(SUPPORT_TYPES).map(([key, type]) => new ButtonBuilder().setCustomId(`support_create:${key}`).setLabel(type.label).setStyle(type.style).setEmoji(type.emoji));
+  return {
+    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎟️ Destek Sistemi').setDescription(`Aşağıdaki kategorilerden birini seçerek destek talebi oluşturabilirsiniz.\n\n${lines}`).setFooter({ text: 'Tierlist Bot • Destek Sistemi' }).setTimestamp()],
+    components: [new ActionRowBuilder().addComponents(buttons.slice(0, 3)), new ActionRowBuilder().addComponents(buttons.slice(3))]
+  };
+}
+function ticketOverwrites(guild, userId, mode = 'test') {
+  const pattern = mode === 'support' ? /(tester|destek|support|moderator|yetkili)/i : /tester/i;
+  const staffRoles = guild.roles.cache.filter((role) => pattern.test(role.name));
   return [
     { id: guild.roles.everyone.id, deny: ['ViewChannel'] },
     { id: userId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
     { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'ManageChannels', 'ReadMessageHistory'] },
-    ...testerRoles.map((role) => ({ id: role.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }))
+    ...staffRoles.map((role) => ({ id: role.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }))
   ];
+}
+
+function ticketControls() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('ticket_claim').setLabel('Talebi Sahiplen').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
+    new ButtonBuilder().setCustomId('ticket_close').setLabel('Talebi Kapat').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+  );
 }
 
 client.once(Events.ClientReady, (ready) => console.log(`${ready.user.tag} hazır.`));
@@ -35,7 +61,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) return handleCommand(interaction);
     if (interaction.isButton() && interaction.customId === 'join_waitlist') return showJoinModal(interaction);
+    if (interaction.isButton() && interaction.customId.startsWith('support_create:')) return showSupportModal(interaction);
+    if (interaction.isButton() && interaction.customId === 'ticket_claim') return claimTicket(interaction);
+    if (interaction.isButton() && interaction.customId === 'ticket_close') return closeTicket(interaction);
     if (interaction.isModalSubmit() && interaction.customId === 'minecraft_name') return showKitPicker(interaction);
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('support_modal:')) return createSupportTicket(interaction);
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('kit_pick:')) return addToQueue(interaction);
   } catch (error) {
     console.error(error);
@@ -55,6 +85,12 @@ async function handleCommand(interaction) {
     await interaction.channel.send(panel());
     return interaction.reply({ content: 'Katılım paneli gönderildi.', ephemeral: true });
   }
+  if (commandName === 'support-panel') {
+    await interaction.channel.send(supportPanel());
+    return interaction.reply({ content: 'Destek paneli gönderildi.', ephemeral: true });
+  }
+  if (commandName === 'setup') return setupGuild(interaction);
+  if (commandName === 'test-sonuc') return publishTestResult(interaction);
   if (commandName === 'queue') {
     const sub = interaction.options.getSubcommand();
     if (sub === 'status') return status(interaction);
@@ -115,6 +151,116 @@ async function addToQueue(interaction) {
   current.entries.push({ userId: interaction.user.id, minecraftName, ticketId: ticket.id, joinedAt: Date.now() }); store.save();
   await ticket.send(`Merhaba <@${interaction.user.id}>! **${kitName(kit)}** sırasına \`${minecraftName}\` adıyla eklendin. Aktif tester seni çağırdığında buradan devam edebilirsiniz.`);
   return interaction.update({ content: `✅ **${kitName(kit)}** sırasına eklendin. Sıra: **${current.entries.length}**. Ticketın: <#${ticket.id}>`, components: [] });
+}
+
+async function showSupportModal(interaction) {
+  const typeKey = interaction.customId.split(':')[1];
+  const type = SUPPORT_TYPES[typeKey];
+  if (!type) return interaction.reply({ content: 'Geçersiz destek kategorisi.', ephemeral: true });
+  const existing = interaction.guild.channels.cache.find((channel) => channel.topic?.startsWith(`Support | ${interaction.user.id} |`));
+  if (existing) return interaction.reply({ content: `Zaten açık bir destek talebin var: <#${existing.id}>`, ephemeral: true });
+  const modal = new ModalBuilder().setCustomId(`support_modal:${typeKey}`).setTitle(`${type.label} Talebi`);
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('subject').setLabel('Konu').setPlaceholder('Talebini kısaca özetle').setRequired(true).setMaxLength(80).setStyle(TextInputStyle.Short)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('details').setLabel('Açıklama').setPlaceholder('Yetkililerin bilmesi gereken detayları yaz').setRequired(true).setMinLength(10).setMaxLength(1000).setStyle(TextInputStyle.Paragraph))
+  );
+  return interaction.showModal(modal);
+}
+
+async function createSupportTicket(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  const typeKey = interaction.customId.split(':')[1];
+  const type = SUPPORT_TYPES[typeKey];
+  if (!type) return interaction.editReply('Geçersiz destek kategorisi.');
+  const existing = interaction.guild.channels.cache.find((channel) => channel.topic?.startsWith(`Support | ${interaction.user.id} |`));
+  if (existing) return interaction.editReply(`Zaten açık bir destek talebin var: <#${existing.id}>`);
+  const category = findCategory(interaction.guild, 'destek-talepleri');
+  const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20) || interaction.user.id;
+  const ticket = await interaction.guild.channels.create({
+    name: `${typeKey}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: category?.id,
+    permissionOverwrites: ticketOverwrites(interaction.guild, interaction.user.id, 'support'),
+    topic: `Support | ${interaction.user.id} | ${typeKey}`
+  });
+  const subject = interaction.fields.getTextInputValue('subject');
+  const details = interaction.fields.getTextInputValue('details');
+  await ticket.send({
+    content: `<@${interaction.user.id}>`,
+    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle(`${type.emoji} ${type.label} Talebi`).addFields(
+      { name: 'Talep sahibi', value: `<@${interaction.user.id}>`, inline: true }, { name: 'Konu', value: subject, inline: true }, { name: 'Açıklama', value: details }
+    ).setFooter({ text: `Kullanıcı ID: ${interaction.user.id}` }).setTimestamp()],
+    components: [ticketControls()]
+  });
+  return interaction.editReply(`✅ Destek talebin oluşturuldu: <#${ticket.id}>`);
+}
+
+async function claimTicket(interaction) {
+  if (!isStaff(interaction.member)) return interaction.reply({ content: 'Bu talebi yalnızca yetkililer sahiplenebilir.', ephemeral: true });
+  return interaction.reply(`🙋 Bu talep <@${interaction.user.id}> tarafından sahiplenildi.`);
+}
+
+async function closeTicket(interaction) {
+  const ownerId = interaction.channel.topic?.split(' | ')[1];
+  if (ownerId !== interaction.user.id && !isStaff(interaction.member)) return interaction.reply({ content: 'Bu talebi yalnızca talep sahibi veya yetkili kapatabilir.', ephemeral: true });
+  await interaction.reply('🔒 Talep 5 saniye içinde kapatılacak.');
+  setTimeout(() => interaction.channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(console.error), 5000);
+}
+
+async function publishTestResult(interaction) {
+  if (!isTester(interaction.member)) return interaction.reply({ content: 'Bu komut yalnızca Tester rolü (veya Mesajları Yönet izni) olanlar içindir.', ephemeral: true });
+  const minecraftName = interaction.options.getString('minecraft-adi').trim();
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(minecraftName)) return interaction.reply({ content: 'Geçerli bir Minecraft kullanıcı adı girin.', ephemeral: true });
+  const kit = interaction.options.getString('kit');
+  const previousRank = interaction.options.getString('onceki-rank');
+  const earnedRank = interaction.options.getString('kazanilan-rank');
+  const region = interaction.options.getString('bolge') || 'TR';
+  const member = interaction.options.getUser('discord-uyesi');
+  const requestedChannel = interaction.options.getChannel('kanal');
+  const resultChannel = requestedChannel || findChannel(interaction.guild, `${kit}-sonuclari`) || findChannel(interaction.guild, 'test-sonuclari') || interaction.channel;
+  const embed = new EmbedBuilder()
+    .setColor(0xF1E7C3)
+    .setTitle(`${minecraftName}'in Test Sonuçları 🏆`)
+    .addFields(
+      { name: 'Tester', value: `<@${interaction.user.id}>` },
+      { name: 'Bölge', value: region, inline: true },
+      { name: 'Kit', value: kitName(kit), inline: true },
+      { name: 'Kullanıcı Adı', value: minecraftName },
+      { name: 'Önceki Rank', value: previousRank, inline: true },
+      { name: 'Kazanılan Rank', value: earnedRank, inline: true }
+    )
+    .setFooter({ text: `[1.21+] MC ${kitName(kit)} • Yanlış atılan sonuçlar için destek talebi açın.` })
+    .setTimestamp();
+  await resultChannel.send({ content: member ? `<@${member.id}>` : undefined, embeds: [embed] });
+  return interaction.reply({ content: `✅ Test sonucu <#${resultChannel.id}> kanalına gönderildi.`, ephemeral: true });
+}
+
+async function setupGuild(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  const guild = interaction.guild;
+  let testerRole = guild.roles.cache.find((role) => role.name.toLowerCase() === 'tester');
+  if (!testerRole) testerRole = await guild.roles.create({ name: 'Tester', color: 0xF1C40F, reason: 'Tierlist Bot setup' });
+  let waitlistRole = guild.roles.cache.find((role) => role.name.toLocaleLowerCase('tr-TR') === 'waitlist üye');
+  if (!waitlistRole) waitlistRole = await guild.roles.create({ name: 'Waitlist Üye', color: 0x57F287, reason: 'Tierlist Bot setup' });
+  let waitlistCategory = findCategory(guild, 'waitlist-ticketler');
+  if (!waitlistCategory) waitlistCategory = await guild.channels.create({ name: 'WAITLIST-TICKETLER', type: ChannelType.GuildCategory });
+  let supportCategory = findCategory(guild, 'destek-talepleri');
+  if (!supportCategory) supportCategory = await guild.channels.create({ name: 'DESTEK-TALEPLERİ', type: ChannelType.GuildCategory });
+  const readOnly = [
+    { id: guild.roles.everyone.id, allow: ['ViewChannel', 'ReadMessageHistory'], deny: ['SendMessages'] },
+    { id: guild.members.me.id, allow: ['ViewChannel', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory'] }
+  ];
+  async function ensureText(name, permissionOverwrites) {
+    return findChannel(guild, name) || guild.channels.create({ name, type: ChannelType.GuildText, permissionOverwrites });
+  }
+  const announcement = await ensureText('waitlist-sira-bekleme', readOnly);
+  const join = await ensureText('waitlist-katil', readOnly);
+  const results = await ensureText('test-sonuclari', [
+    ...readOnly,
+    { id: testerRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+  ]);
+  const support = await ensureText('destek', readOnly);
+  await join.send(panel());
+  await support.send(supportPanel());
+  return interaction.editReply(`✅ Kurulum tamamlandı.\nDuyuru: <#${announcement.id}>\nWaitlist: <#${join.id}>\nSonuçlar: <#${results.id}>\nDestek: <#${support.id}>\n\nTester rolünü ilgili kişilere vermeyi unutmayın.`);
 }
 client.login(process.env.DISCORD_TOKEN);
 
