@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: minecraft-tierlist-discord-bot
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: DATA_FILE
+        value: ./data/state.json
+
