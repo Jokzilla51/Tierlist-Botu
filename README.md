@@ -26,9 +26,8 @@ Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar;
 4. `Waitlist Üye` rolünü oluşturun. Testerlar için adı `Tester` olan rol oluşturun (veya onlara **Mesajları Yönet** izni verin).
 5. `.env.example` dosyasını `.env` olarak kopyalayıp değerleri yazın.
 6. Bağımlılıkları kurun: `npm install`
-7. Slash komutlarını kaydedin: `npm run deploy-commands`
-8. Botu çalıştırın: `npm start`
-9. `#waitlist-katil` kanalında `/waitlist-panel` kullanın; `/server address:play.ornek.com` ile adresi belirleyin.
+7. Botu çalıştırın: `npm start` (komutlar başlangıçta otomatik kaydedilir).
+8. `#waitlist-katil` kanalında `/waitlist-panel` kullanın; `/server address:play.ornek.com` ile adresi belirleyin.
 
 ## Kullanım
 
@@ -47,8 +46,7 @@ Her kitte aynı anda yalnızca bir tester aktif olabilir. Sıra kapandığında 
 1. Bu klasörü yeni bir GitHub reposuna yükleyin.
 2. Render'da **New → Blueprint** seçip GitHub reposunu bağlayın. Render, `render.yaml` dosyasını algılar.
 3. Oluşan **Worker** için `DISCORD_TOKEN`, `CLIENT_ID` ve `GUILD_ID` gizli ortam değişkenlerini girin.
-4. İlk yayından önce yerel bilgisayarınızda (veya Render Shell'de) `npm run deploy-commands` çalıştırın. `GUILD_ID` varsa komutlar hemen görünür.
-5. Deploy'u başlatın.
+4. Deploy'u başlatın. Bot, başlangıçta slash komutlarını otomatik kaydeder; `GUILD_ID` varsa komutlar hemen görünür.
 
 > Render ücretsiz worker'ları uyuyabilir/değişebilir ve yerel disk kalıcı değildir. Kuyrukların yeniden başlatmada kaybolmaması için ücretli planda Persistent Disk bağlayıp `DATA_FILE` değerini disk üzerindeki bir yola (ör. `/var/data/state.json`) ayarlayın. Daha yüksek güvenilirlik için sonraki adımda PostgreSQL veya Redis eklenebilir.
 
