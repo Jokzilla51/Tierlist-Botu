@@ -551,6 +551,11 @@ async function recoverExistingTestTickets(guild) {
       panelMessage = messages?.find((message) => message.author.id === client.user.id && message.components.length);
     }
     if (panelMessage) await panelMessage.edit({ components: testControls(recovered.kit, active.userId, active) }).catch(() => null);
+    else await channel.send({
+      content: `🔄 Bot yeniden başlatıldığı için test kontrolü geri yüklendi. <@${active.userId}> ${active.readyAt ? 'hazır; tester testi sahiplenebilir.' : '**Hazırım** düğmesine basmalı.'}`,
+      allowedMentions: { users: [active.userId] },
+      components: testControls(recovered.kit, active.userId, active)
+    }).catch((error) => console.warn(`${channel.name} test kontrolü geri yüklenemedi:`, error.message));
     await updateTestTopic(channel, active, recovered.kit);
     scheduleReadyTimer(guild, recovered.kit, active);
     changed = true;
@@ -780,7 +785,8 @@ async function showSetupStatus(interaction) {
   const logPrivate = Boolean(auditChannel && !auditChannel.permissionsFor(interaction.guild.roles.everyone)?.has(PermissionFlagsBits.ViewChannel));
   const logDistinct = Boolean(auditChannel && ![config.waitlistPanelChannelId, config.testerPanelChannelId, config.supportPanelChannelId, config.announcementChannelId, config.resultChannelId].includes(auditChannel.id));
   const rolePingWorks = Boolean(waitlistRole?.mentionable || configuredChannel(interaction.guild, 'announcementChannelId')?.permissionsFor(bot)?.has(PermissionFlagsBits.MentionEveryone));
-  const healthy = isConfigured(interaction.guild) && guildPermissionChecks.every(([, bit]) => bot.permissions.has(bit)) && channelHealth.every((item) => item.healthy) && rolesEditable && logPrivate && logDistinct && rolePingWorks;
+  const requiredGuildPermissions = [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles];
+  const healthy = isConfigured(interaction.guild) && requiredGuildPermissions.every((bit) => bot.permissions.has(bit)) && channelHealth.every((item) => item.healthy) && rolesEditable && logPrivate && logDistinct && rolePingWorks;
   const embed = new EmbedBuilder().setColor(healthy ? 0x57F287 : 0xED4245).setTitle(`${healthy ? '✅' : '⚠️'} Tierlist Bot Kurulum Durumu`).addFields(
     { name: 'Kaynaklar', value: resourceLines.join('\n') },
     { name: 'Bot izinleri', value: permissionChecks, inline: true },
