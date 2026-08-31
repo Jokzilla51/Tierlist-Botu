@@ -1,57 +1,71 @@
 # Minecraft Tierlist Discord Bot
 
-Elytra ve Trap testleri için tamamen panel ve düğmelerle çalışan Discord botu. Slash komutu gerekmez.
+Elytra ve Trap test sıraları için Discord botu. Yönetici panel kanallarını, ticket kategorilerini ve rolleri `/kurulum` komutuyla seçer; günlük kuyruk/test işlemleri düğmelerle otomatik yürür.
 
-## Otomatik akış
+## İlk kurulum
 
-1. Bot açılınca gerekli rol, kategori, kanal ve panelleri kendisi oluşturur.
-2. Tester `#tester-panel` kanalından Elytra veya Trap sırasını açar.
-3. Oyuncu `#waitlist-katil` paneline Minecraft adını girip açık kiti seçer ve `Waitlist Üye` rolünü alır.
-4. İlk oyuncunun özel test ticketı otomatik açılır. Diğer oyuncular sırada bekler.
-5. Tester ticketta **Testi Sahiplen** düğmesine basar.
-6. Test bitince kazanılan tier dropdown menüsünden seçilir.
-7. Bot eski kit tier rolünü kaldırır ve `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri yeni rolü otomatik verir.
-8. Sonuç `#test-sonuclari` kanalına gönderilir, ticket kapanır ve sıradaki oyuncunun ticketı otomatik açılır.
-9. Oyuncu aynı kit için 5 gün geçmeden yeniden sıraya giremez.
+Önce Discord sunucusunda istediğiniz kanalları, iki kategoriyi ve rolleri oluşturun. Ardından yönetici olarak `/kurulum` komutunu kullanıp şunları seçin:
 
-Tester ayrıca oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir veya **Testten Çıkar** ile mevcut testten kaldırabilir. Sıra kapatıldığında aktif test tamamlanabilir fakat yeni ticket açılmaz.
+- Waitlist katılım paneli kanalı
+- Tester kontrol paneli kanalı
+- Destek paneli kanalı
+- Sıra açılış duyuru kanalı
+- Tier sonuç kanalı
+- Test ticket kategorisi
+- Destek ticket kategorisi
+- Mevcut tester rolü
+- Waitlist rolü
 
-## Otomatik oluşturulanlar
+Bot seçilen kanallara panelleri gönderir ve bundan sonra yalnızca bu ayarları kullanır. Kendi başına kanal, kategori, Tester rolü veya Waitlist rolü oluşturmaz.
 
-- Sunucudaki mevcut tester rolü (adında `tester` geçen en yüksek rol) ve `Waitlist Üye` rolü
-- `#tester-panel`
-- `#waitlist-katil`
-- `#waitlist-sira-bekleme`
-- `#test-sonuclari`
-- `#destek`
-- `WAITLIST-TICKETLER` ve `DESTEK-TALEPLERİ` kategorileri
-- Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer destek ticketları
+Diğer kurulum komutları:
 
-`#waitlist-katil` panelindeki bildirim düğmesiyle kullanıcılar sıra açılış bildirimlerini açıp kapatabilir. Minecraft sunucu adresi `#tester-panel` üzerindeki ayar düğmesinden girilir.
+```text
+/sunucu-ayarla adres:play.sunucu.com
+/panelleri-yenile
+```
+
+`/panelleri-yenile`, panel mesajı silinmişse yeniden gönderir; mevcutsa günceller.
+
+## Otomatik test akışı
+
+1. Tester, seçtiğiniz tester panelinden Elytra veya Trap sırasını açar.
+2. Oyuncu waitlist paneline Minecraft adını girip açık kiti seçer ve ayarlanan Waitlist rolünü alır.
+3. İlk oyuncunun ticketı seçilen test kategorisinde otomatik açılır.
+4. Tester **Testi Sahiplen** düğmesine basar.
+5. Test bitince kazanılan tier dropdown menüsünden seçilir.
+6. Bot eski kit tier rolünü kaldırıp `Ely LT3`, `Ely HT2`, `Trap LT4` benzeri yeni rolü verir.
+7. Sonuç seçilen sonuç kanalına gönderilir.
+8. Ticket kapanır ve sıradaki oyuncunun ticketı otomatik açılır.
+9. Oyuncu aynı kit için 5 gün geçmeden tekrar sıraya giremez.
+
+Tester oyuncuyu **Sona At** ile kuyruğun sonuna gönderebilir, **Testten Çıkar** ile kaldırabilir ve tester panelinden sırayı kapatabilir. Sıra kapalıyken aktif test tamamlanır fakat yeni ticket açılmaz.
+
+## Destek sistemi
+
+Destek panelinde Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer seçenekleri bulunur. Açılan ticketlar `/kurulum` sırasında seçilen destek kategorisine gider. Kullanıcı başına tek açık destek talebi vardır; yetkili talebi sahiplenebilir ve kapatabilir.
 
 ## Discord izinleri
 
-Botu `bot` ve `applications.commands` kapsamlarıyla sunucuya ekleyin. Şu izinleri verin:
+Botu `bot` ve `applications.commands` kapsamlarıyla ekleyin. Botta şu izinler bulunmalıdır:
 
 - Kanalları Yönet
 - Rolleri Yönet
+- Kanalları Görüntüle
 - Mesaj Gönder
 - Bağlantı Yerleştir
 - Mesaj Geçmişini Oku
-- Kanalları Görüntüle
 
-Bot, sunucuda adında `tester` geçen mevcut bir rol varsa onu kullanır ve yeni rol oluşturmaz. Birden fazla tester rolü varsa rol listesindeki en yüksek olanı kullanır. Hiç yoksa `Tester` rolünü oluşturur. Discord rol listesinde bot rolü, `Waitlist Üye` ve tier rollerinin üzerinde olmalıdır.
+Bot rolü, ayarlanan Waitlist rolünün ve tier rollerinin üzerinde olmalıdır.
 
 ## Render
 
-Render Blueprint olarak bu repoyu bağlayın ve şu ortam değişkenlerini girin:
+Gerekli ortam değişkenleri:
 
 - `DISCORD_TOKEN`
 - `CLIENT_ID`
 - `GUILD_ID`
 - `DATA_FILE` (varsayılan `./data/state.json`)
 
-Başlangıç sırasında eski slash komutları temizlenir ve bot tüm panelleri otomatik hazırlar.
-
-Kuyrukların ve 5 günlük bekleme sürelerinin yeniden başlatmada korunması için Render Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` ayarlayın. Tokenı GitHub'a yüklemeyin.
+Kuyrukların, kurulum seçimlerinin ve 5 günlük sürelerin yeniden başlatmada korunması için Render Persistent Disk bağlayıp `DATA_FILE=/var/data/state.json` ayarlayın. Tokenı GitHub'a yüklemeyin.
 
