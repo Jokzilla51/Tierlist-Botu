@@ -7,7 +7,9 @@ const commands = [
     .setDescription('Tierlist botunun panel, kanal, kategori ve rollerini ayarlar.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
-    .addChannelOption((option) => option.setName('waitlist-panel').setDescription('Waitlist katılım panelinin gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option.setName('waitlist-panel').setDescription('Eski birleşik panel (isteğe bağlı)').setRequired(false).addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option.setName('elytra-waitlist-panel').setDescription('Elytra waitlist panel kanalı').setRequired(true).addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option.setName('trap-waitlist-panel').setDescription('Trap waitlist panel kanalı').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('tester-panel').setDescription('Tester kontrol panelinin gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('destek-panel').setDescription('Destek panelinin gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option.setName('duyuru-kanali').setDescription('Sıra açılış duyurularının gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText))
@@ -15,6 +17,10 @@ const commands = [
     .addChannelOption((option) => option.setName('test-ticket-kategorisi').setDescription('Test ticketlarının açılacağı kategori').setRequired(true).addChannelTypes(ChannelType.GuildCategory))
     .addChannelOption((option) => option.setName('destek-ticket-kategorisi').setDescription('Destek ticketlarının açılacağı kategori').setRequired(true).addChannelTypes(ChannelType.GuildCategory))
     .addRoleOption((option) => option.setName('tester-rolu').setDescription('Testerlara verilmiş mevcut rol').setRequired(true))
+    .addRoleOption((option) => option.setName('elytra-tester-rolu').setDescription('Elytra Tester rolü').setRequired(true))
+    .addRoleOption((option) => option.setName('trap-tester-rolu').setDescription('Trap Tester rolü').setRequired(true))
+    .addRoleOption((option) => option.setName('ticket-yetkilisi-rolu').setDescription('Ticket yetkilisi rolü').setRequired(true))
+    .addRoleOption((option) => option.setName('partner-yetkilisi-rolu').setDescription('Partner yetkilisi rolü').setRequired(true))
     .addRoleOption((option) => option.setName('waitlist-rolu').setDescription('Sırada bekleyenlere ve bildirim isteyenlere verilecek rol').setRequired(true))
     .addChannelOption((option) => option.setName('log-kanali').setDescription('Özel yetkili kayıtları ve transcriptlerin gönderileceği kanal').setRequired(true).addChannelTypes(ChannelType.GuildText)),
   new SlashCommandBuilder()
@@ -84,4 +90,3 @@ if (require.main === module) {
     console.log('Kurulum komutları kaydedildi.');
   })();
 }
-
