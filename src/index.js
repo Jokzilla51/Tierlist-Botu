@@ -34,12 +34,12 @@ const NO_SHOW_RETRY_MS = minuteEnv('NO_SHOW_RETRY_MINUTES', 15, 1, 1440);
 const STATE_BACKUP_MARKER = 'TierlistBotState:v2';
 const CONFIG_SCHEMA = 'v2';
 const CONFIG_KEYS = [
-  'waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId',
+  'waitlistPanelChannelId', 'elytraWaitlistPanelChannelId', 'trapWaitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId',
   'announcementChannelId', 'resultChannelId', 'testTicketCategoryId',
-  'supportTicketCategoryId', 'testerRoleId', 'waitlistRoleId'
+  'supportTicketCategoryId', 'testerRoleId', 'elytraTesterRoleId', 'trapTesterRoleId', 'ticketStaffRoleId', 'partnerStaffRoleId', 'waitlistRoleId'
 ];
 const BACKUP_CONFIG_KEYS = [...CONFIG_KEYS, 'auditLogChannelId'];
-const CONFIG_TEXT_CHANNEL_KEYS = ['waitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId'];
+const CONFIG_TEXT_CHANNEL_KEYS = ['waitlistPanelChannelId', 'elytraWaitlistPanelChannelId', 'trapWaitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId'];
 const CONFIG_CATEGORY_KEYS = ['testTicketCategoryId', 'supportTicketCategoryId'];
 const CONFIG_ROLE_KEYS = ['testerRoleId', 'waitlistRoleId'];
 const SUPPORT_TYPES = {
@@ -71,8 +71,8 @@ const isConfigured = (guild) => {
   const config = guildConfig(guild.id);
   return Boolean(config && BACKUP_CONFIG_KEYS.every((key) => config[key]) && configResourcesExist(guild, config));
 };
-const isTester = (member) => member.permissions.has(PermissionFlagsBits.ManageGuild) || Boolean(configuredRole(member.guild, 'testerRoleId') && member.roles.cache.has(guildConfig(member.guild.id).testerRoleId));
-const isStaff = (member) => isTester(member);
+const isTester = (member) => { const config = guildConfig(member.guild.id); return member.permissions.has(PermissionFlagsBits.ManageGuild) || ['testerRoleId', 'elytraTesterRoleId', 'trapTesterRoleId'].some((key) => config?.[key] && member.roles.cache.has(config[key])); };
+const isStaff = (member) => { const config = guildConfig(member.guild.id); return isTester(member) || ['ticketStaffRoleId', 'partnerStaffRoleId'].some((key) => config?.[key] && member.roles.cache.has(config[key])); };
 const cooldownEndsAt = (kit, userId) => (store.get().cooldowns[kit]?.[userId] || 0) + TEST_COOLDOWN_MS;
 const isWaitingOrTesting = (userId) => Object.keys(KITS).some((kit) => queue(kit).entries.some((entry) => entry.userId === userId) || activeTests(kit).some((entry) => entry.userId === userId));
 const queueStatus = (kit) => queue(kit).status || (queue(kit).testerId ? 'open' : 'closed');
@@ -105,9 +105,9 @@ function formatRemaining(ms) {
   return [days && `${days} gün`, hours && `${hours} saat`, minutes && `${minutes} dakika`].filter(Boolean).join(' ') || '1 dakikadan az';
 }
 
-function waitlistPanel() {
+function waitlistPanel(onlyKit = null) {
   const anyOpen = Object.keys(KITS).some((kit) => isQueueOpen(kit));
-  const kitFields = Object.keys(KITS).map((kit) => {
+  const kitFields = Object.keys(KITS).filter((kit) => !onlyKit || kit === onlyKit).map((kit) => {
     const current = queue(kit);
     const active = activeTests(kit)[0];
     return {
@@ -119,7 +119,7 @@ function waitlistPanel() {
   return {
     embeds: [new EmbedBuilder()
       .setColor(anyOpen ? 0x57F287 : 0x747F8D)
-      .setTitle('🏆 Tierlist Test Başvurusu')
+      .setTitle(onlyKit ? '🏆 ' + kitName(onlyKit) + ' Test Sırası' : '🏆 Tierlist Test Başvurusu')
       .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.')
       .addFields(
         ...kitFields,
@@ -129,10 +129,7 @@ function waitlistPanel() {
       .setFooter({ text: 'Aynı anda yalnızca bir sırada bulunabilirsin • Yeniden test süresi 5 gündür' })
       .setTimestamp()],
     components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('waitlist_join:elytra').setLabel("Elytra'ya Katıl").setStyle(ButtonStyle.Success).setEmoji('🪽').setDisabled(!isQueueOpen('elytra')),
-        new ButtonBuilder().setCustomId('waitlist_join:trap').setLabel("Trap'e Katıl").setStyle(ButtonStyle.Success).setEmoji('🪤').setDisabled(!isQueueOpen('trap'))
-      ),
+      new ActionRowBuilder().addComponents(...Object.keys(KITS).filter((kit) => !onlyKit || kit === onlyKit).map((kit) => new ButtonBuilder().setCustomId('waitlist_join:' + kit).setLabel(kit === 'elytra' ? "Elytra'ya Katıl" : "Trap'e Katıl").setStyle(ButtonStyle.Success).setEmoji(kit === 'elytra' ? '🪽' : '🪤').setDisabled(!isQueueOpen(kit)))),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('waitlist_status').setLabel('Sıramı Gör').setStyle(ButtonStyle.Primary).setEmoji('🔎'),
         new ButtonBuilder().setCustomId('waitlist_leave').setLabel('Sıradan Ayrıl').setStyle(ButtonStyle.Danger).setEmoji('🚪'),
@@ -430,18 +427,25 @@ async function refreshTesterPanel(guild) {
 }
 
 async function refreshWaitlistPanel(guild) {
-  const channel = configuredChannel(guild, 'waitlistPanelChannelId');
-  if (channel) await ensurePanel(channel, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
+  const legacy = configuredChannel(guild, 'waitlistPanelChannelId');
+  const elytra = configuredChannel(guild, 'elytraWaitlistPanelChannelId');
+  const trap = configuredChannel(guild, 'trapWaitlistPanelChannelId');
+  if (elytra) await ensurePanel(elytra, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra'));
+  if (trap) await ensurePanel(trap, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap'));
+  if (legacy && !elytra && !trap) await ensurePanel(legacy, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
 }
 
 async function deployConfiguredPanels(guild) {
   const config = guildConfig(guild.id);
   if (!config) throw new Error('Kurulum ayarları bulunamadı.');
   const waitlist = configuredChannel(guild, 'waitlistPanelChannelId');
+  const elytraWaitlist = configuredChannel(guild, 'elytraWaitlistPanelChannelId');
+  const trapWaitlist = configuredChannel(guild, 'trapWaitlistPanelChannelId');
   const tester = configuredChannel(guild, 'testerPanelChannelId');
   const support = configuredChannel(guild, 'supportPanelChannelId');
-  if (!waitlist || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
-  await ensurePanel(waitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
+  if ((!waitlist && (!elytraWaitlist || !trapWaitlist)) || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
+  if (elytraWaitlist) await ensurePanel(elytraWaitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra'));
+  if (trapWaitlist) await ensurePanel(trapWaitlist, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap'));
   const testerMessage = await ensurePanel(tester, ['queue_action:elytra:open', 'queue_toggle:elytra'], testerPanel(guild.id));
   let configPinned = testerMessage.pinned;
   if (!configPinned) {
@@ -695,6 +699,8 @@ async function handleAdminCommand(interaction) {
   if (interaction.commandName !== 'kurulum') return;
   await interaction.deferReply({ ephemeral: true });
   const waitlistPanelChannel = interaction.options.getChannel('waitlist-panel');
+  const elytraWaitlistPanelChannel = interaction.options.getChannel('elytra-waitlist-panel');
+  const trapWaitlistPanelChannel = interaction.options.getChannel('trap-waitlist-panel');
   const testerPanelChannel = interaction.options.getChannel('tester-panel');
   const supportPanelChannel = interaction.options.getChannel('destek-panel');
   const announcementChannel = interaction.options.getChannel('duyuru-kanali');
@@ -703,13 +709,20 @@ async function handleAdminCommand(interaction) {
   const testTicketCategory = interaction.options.getChannel('test-ticket-kategorisi');
   const supportTicketCategory = interaction.options.getChannel('destek-ticket-kategorisi');
   const testerRole = interaction.options.getRole('tester-rolu');
+  const elytraTesterRole = interaction.options.getRole('elytra-tester-rolu');
+  const trapTesterRole = interaction.options.getRole('trap-tester-rolu');
+  const ticketStaffRole = interaction.options.getRole('ticket-yetkilisi-rolu');
+  const partnerStaffRole = interaction.options.getRole('partner-yetkilisi-rolu');
   const waitlistRole = interaction.options.getRole('waitlist-rolu');
   if (!auditLogChannel) return interaction.editReply('Gizli ticket transcriptleri için ayrı bir **log-kanali** seçmelisin. Komutlar yenilendikten sonra bu alan zorunlu görünür.');
-  if ([waitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel].some((channel) => channel.id === auditLogChannel.id)) return interaction.editReply('Gizlilik için log kanalı bütün panel, duyuru ve sonuç kanallarından ayrı olmalı. Özel bir yetkili log kanalı seç.');
+  if ([waitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel].some((channel) => channel?.id === auditLogChannel.id)) return interaction.editReply('Gizlilik için log kanalı bütün panel, duyuru ve sonuç kanallarından ayrı olmalı. Özel bir yetkili log kanalı seç.');
+  if (!elytraWaitlistPanelChannel || !trapWaitlistPanelChannel || !elytraTesterRole || !trapTesterRole || !ticketStaffRole || !partnerStaffRole) return interaction.editReply('Elytra/Trap panel kanalları ve tüm yetkili rolleri zorunludur.');
   if (!waitlistRole.editable) return interaction.editReply('Waitlist rolü bot rolünden yukarıda. Discord rol listesinde bot rolünü Waitlist rolünün üstüne taşı.');
 
   store.get().guildConfigs[interaction.guild.id] = {
-    waitlistPanelChannelId: waitlistPanelChannel.id,
+    waitlistPanelChannelId: waitlistPanelChannel?.id || null,
+    elytraWaitlistPanelChannelId: elytraWaitlistPanelChannel.id,
+    trapWaitlistPanelChannelId: trapWaitlistPanelChannel.id,
     testerPanelChannelId: testerPanelChannel.id,
     supportPanelChannelId: supportPanelChannel.id,
     announcementChannelId: announcementChannel.id,
@@ -717,13 +730,17 @@ async function handleAdminCommand(interaction) {
     testTicketCategoryId: testTicketCategory.id,
     supportTicketCategoryId: supportTicketCategory.id,
     testerRoleId: testerRole.id,
+    elytraTesterRoleId: elytraTesterRole.id,
+    trapTesterRoleId: trapTesterRole.id,
+    ticketStaffRoleId: ticketStaffRole.id,
+    partnerStaffRoleId: partnerStaffRole.id,
     waitlistRoleId: waitlistRole.id,
     auditLogChannelId: auditLogChannel?.id || null
   };
   store.save();
 
   const botMember = interaction.guild.members.me;
-  for (const channel of new Set([waitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel, auditLogChannel].filter(Boolean))) {
+  for (const channel of new Set([waitlistPanelChannel, elytraWaitlistPanelChannel, trapWaitlistPanelChannel, testerPanelChannel, supportPanelChannel, announcementChannel, resultChannel, auditLogChannel].filter(Boolean))) {
     await channel.permissionOverwrites.edit(botMember, { ViewChannel: true, SendMessages: true, EmbedLinks: true, AttachFiles: true, ReadMessageHistory: true }, { reason: 'Tierlist Bot setup' });
   }
   await announcementChannel.permissionOverwrites.edit(botMember, { MentionEveryone: true }, { reason: 'Waitlist rolü bildirimlerini gönderebilme' });
@@ -1571,4 +1588,3 @@ if (require.main === module) {
   process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 }
-
