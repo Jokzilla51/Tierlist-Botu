@@ -14,20 +14,27 @@ Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar;
 - `/next` ile sıradaki oyuncuyu çağırma
 - `/server` ile Minecraft sunucu adresi ayarlama
 - Tester rolü veya **Mesajları Yönet** izni ile kuyruk kontrolü; sunucu yöneticisi müdahale edebilir
+- Beş kategorili, düğmeli destek sistemi: Başvuru, Yüksek Test, Şikayet, Reklam/Partnerlik ve Diğer
+- Kullanıcı başına tek açık destek talebi, yetkili sahiplenme ve güvenli kapatma düğmeleri
+- `/test-sonuc` ile ekran görüntülerindeki stile benzer tier sonuç kartları
+- `/setup` ile gerekli rollerin, kategorilerin, kanalların ve panellerin otomatik kurulumu
 
 ## Discord kurulumu
 
 1. Discord Developer Portal'da bir uygulama ve bot oluşturun.
 2. Botu sunucunuza eklerken `bot` ve `applications.commands` kapsamlarını seçin. Bot için en az **Kanalları Yönet**, **Mesaj Gönder**, **Mesaj Geçmişini Oku**, **Rolleri Görüntüle** izinlerini verin.
-3. Sunucuda şu kanalları oluşturun:
+3. En kolay kurulum için bot sunucuya girdikten sonra `/setup` komutunu kullanın. Şunlar otomatik oluşturulur:
    - `#waitlist-sira-bekleme` — sıra duyuruları
    - `#waitlist-katil` — katılım paneli
-   - İsteğe bağlı `Waitlist-Ticketler` kategori kanalı — ticketlar bunun altında açılır
-4. `Waitlist Üye` rolünü oluşturun. Testerlar için adı `Tester` olan rol oluşturun (veya onlara **Mesajları Yönet** izni verin).
+   - `#test-sonuclari` — tier sonuç kartları
+   - `#destek` — kategori düğmeli destek paneli
+   - `WAITLIST-TICKETLER` ve `DESTEK-TALEPLERİ` kategorileri
+   - `Waitlist Üye` ve `Tester` rolleri
+4. Tester rolünü ilgili testerlara verin. Destek ekibi için adı `Destek`, `Support`, `Moderator` veya `Yetkili` içeren bir rol kullanabilirsiniz.
 5. `.env.example` dosyasını `.env` olarak kopyalayıp değerleri yazın.
 6. Bağımlılıkları kurun: `npm install`
 7. Botu çalıştırın: `npm start` (komutlar başlangıçta otomatik kaydedilir).
-8. `#waitlist-katil` kanalında `/waitlist-panel` kullanın; `/server address:play.ornek.com` ile adresi belirleyin.
+8. `/setup` kullanın; ardından `/server address:play.ornek.com` ile adresi belirleyin.
 
 ## Kullanım
 
@@ -37,9 +44,14 @@ Elytra ve Trap kitleri için Discord tabanlı test kuyruğu. Tester sıra açar;
 /next kit:Elytra
 /queue close kit:Elytra
 /server address:play.sunucunuz.com
+/test-sonuc minecraft-adi:Steve kit:Elytra onceki-rank:"Low Tier 3" kazanilan-rank:"Low Tier 2"
+/support-panel
+/setup
 ```
 
 Her kitte aynı anda yalnızca bir tester aktif olabilir. Sıra kapandığında mevcut bekleyenler silinmez; tekrar açıldığında sırada kalırlar. Bir kullanıcı kit başına yalnızca bir kez sırada olabilir.
+
+`/test-sonuc` komutunda bölge, Discord üyesi ve hedef kanal isteğe bağlıdır. Kanal seçilmezse bot önce kit adına özel sonucu (`#elytra-sonuclari` veya `#trap-sonuclari`), sonra `#test-sonuclari` kanalını arar.
 
 ## Render ile yayınlama
 
