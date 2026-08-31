@@ -41,7 +41,7 @@ const CONFIG_KEYS = [
 const BACKUP_CONFIG_KEYS = [...CONFIG_KEYS, 'auditLogChannelId'];
 const CONFIG_TEXT_CHANNEL_KEYS = ['waitlistPanelChannelId', 'elytraWaitlistPanelChannelId', 'trapWaitlistPanelChannelId', 'testerPanelChannelId', 'supportPanelChannelId', 'announcementChannelId', 'resultChannelId'];
 const CONFIG_CATEGORY_KEYS = ['testTicketCategoryId', 'supportTicketCategoryId'];
-const CONFIG_ROLE_KEYS = ['testerRoleId', 'waitlistRoleId'];
+const CONFIG_ROLE_KEYS = ['testerRoleId', 'elytraTesterRoleId', 'trapTesterRoleId', 'ticketStaffRoleId', 'partnerStaffRoleId', 'waitlistRoleId'];
 const SUPPORT_TYPES = {
   application: { label: 'Başvuru', emoji: '📝', style: ButtonStyle.Primary },
   high_test: { label: 'Yüksek Test', emoji: '🏆', style: ButtonStyle.Success },
