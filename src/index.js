@@ -140,12 +140,9 @@ function waitlistPanel(onlyKit = null) {
   };
 }
 
-function configButtonChunks(guildId) {
-  const config = guildConfig(guildId);
-  if (!guildId || !config || !BACKUP_CONFIG_KEYS.every((key) => config[key])) return ['', '', '', ''];
-  const payload = [CONFIG_SCHEMA, guildId, ...BACKUP_CONFIG_KEYS.map((key) => config[key] || '0')].join('|');
-  const chunkSize = Math.ceil(payload.length / 4);
-  return [0, 1, 2, 3].map((index) => payload.slice(index * chunkSize, (index + 1) * chunkSize));
+function configButtonChunks() {
+  // Yapılandırma Discord'a sabitlenmiş durum yedeğiyle kaydedilir; düğme kimlikleri 100 karakteri aşmamalı.
+  return ['', '', '', ''];
 }
 
 function testerPanel(guildId) {
