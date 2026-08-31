@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('node:http');
 const {
   Client, GatewayIntentBits, Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits
@@ -500,6 +501,15 @@ module.exports = { waitlistPanel, testerPanel, supportPanel, testControls, forma
 
 if (require.main === module) {
   if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN tanımlı değil.');
-  client.login(process.env.DISCORD_TOKEN);
+  const port = Number(process.env.PORT || 10000);
+  const server = http.createServer((request, response) => {
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ status: 'ok', discord: client.isReady() ? 'connected' : 'connecting' }));
+  });
+  server.listen(port, '0.0.0.0', () => console.log(`Render sağlık sunucusu ${port} portunda hazır.`));
+  client.login(process.env.DISCORD_TOKEN).catch((error) => {
+    console.error('Discord bağlantısı kurulamadı:', error);
+    server.close(() => process.exit(1));
+  });
 }
 
