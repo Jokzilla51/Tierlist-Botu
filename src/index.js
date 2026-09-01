@@ -60,6 +60,7 @@ const findRole = (guild, name) => guild.roles.cache.find((role) => role.name.toL
 const guildConfig = (guildId) => store.get().guildConfigs[guildId] || null;
 const configuredChannel = (guild, key) => guild.channels.cache.get(guildConfig(guild.id)?.[key]);
 const configuredRole = (guild, key) => guild.roles.cache.get(guildConfig(guild.id)?.[key]);
+const waitlistPanelChannel = (guild, kit) => findChannel(guild, 'waitlist-rol') || configuredChannel(guild, kit === 'elytra' ? 'elytraWaitlistPanelChannelId' : 'trapWaitlistPanelChannelId') || configuredChannel(guild, 'waitlistPanelChannelId');
 const configResourcesExist = (guild, config) => Boolean(
   config &&
   CONFIG_TEXT_CHANNEL_KEYS.every((key) => guild.channels.cache.get(config[key])?.isTextBased()) &&
@@ -105,7 +106,7 @@ function formatRemaining(ms) {
   return [days && `${days} gün`, hours && `${hours} saat`, minutes && `${minutes} dakika`].filter(Boolean).join(' ') || '1 dakikadan az';
 }
 
-function waitlistPanel(onlyKit = null) {
+function waitlistPanel(onlyKit = null, waitlistRoleId = null) {
   const anyOpen = Object.keys(KITS).some((kit) => isQueueOpen(kit));
   const kitFields = Object.keys(KITS).filter((kit) => !onlyKit || kit === onlyKit).map((kit) => {
     const current = queue(kit);
@@ -120,7 +121,7 @@ function waitlistPanel(onlyKit = null) {
     embeds: [new EmbedBuilder()
       .setColor(anyOpen ? 0x57F287 : 0x747F8D)
       .setTitle(onlyKit ? '🏆 ' + kitName(onlyKit) + ' Test Sırası' : '🏆 Tierlist Test Başvurusu')
-      .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.\n\n🔔 Sıra açılış bildirimi için Waitlist Rolünü Al / Bırak düğmesine bas.')
+      .setDescription('Test olmak istediğin kitin düğmesine bas ve Minecraft adını yaz. Sıran geldiğinde sana özel ticket otomatik açılır.\n\n🔔 Sıra açılış bildirimi için Waitlist Rolünü Al / Bırak düğmesine bas.' + (waitlistRoleId ? '\n\n🔔 **Waitlist Üye:** <@&' + waitlistRoleId + '>' : ''))
       .addFields(
         ...kitFields,
         { name: '🌐 Sunucu', value: `\`${store.get().serverAddress || 'Henüz ayarlanmadı'}\``, inline: false },
@@ -444,24 +445,24 @@ async function refreshTesterPanel(guild) {
 
 async function refreshWaitlistPanel(guild) {
   const legacy = configuredChannel(guild, 'waitlistPanelChannelId');
-  const elytra = configuredChannel(guild, 'elytraWaitlistPanelChannelId');
-  const trap = configuredChannel(guild, 'trapWaitlistPanelChannelId');
-  if (elytra) await ensurePanel(elytra, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra'));
-  if (trap) await ensurePanel(trap, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap'));
-  if (legacy && !elytra && !trap) await ensurePanel(legacy, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel());
+  const elytra = waitlistPanelChannel(guild, 'elytra');
+  const trap = waitlistPanelChannel(guild, 'trap');
+  if (elytra) await ensurePanel(elytra, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra', guildConfig(guild.id)?.waitlistRoleId));
+  if (trap) await ensurePanel(trap, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap', guildConfig(guild.id)?.waitlistRoleId));
+  if (legacy && !elytra && !trap) await ensurePanel(legacy, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel(null, guildConfig(guild.id)?.waitlistRoleId));
 }
 
 async function deployConfiguredPanels(guild) {
   const config = guildConfig(guild.id);
   if (!config) throw new Error('Kurulum ayarları bulunamadı.');
   const waitlist = configuredChannel(guild, 'waitlistPanelChannelId');
-  const elytraWaitlist = configuredChannel(guild, 'elytraWaitlistPanelChannelId');
-  const trapWaitlist = configuredChannel(guild, 'trapWaitlistPanelChannelId');
+  const elytraWaitlist = waitlistPanelChannel(guild, 'elytra');
+  const trapWaitlist = waitlistPanelChannel(guild, 'trap');
   const tester = configuredChannel(guild, 'testerPanelChannelId');
   const support = configuredChannel(guild, 'supportPanelChannelId');
   if ((!waitlist && (!elytraWaitlist || !trapWaitlist)) || !tester || !support) throw new Error('Ayarlanan panel kanallarından biri bulunamadı.');
-  if (elytraWaitlist) await ensurePanel(elytraWaitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra'));
-  if (trapWaitlist) await ensurePanel(trapWaitlist, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap'));
+  if (elytraWaitlist) await ensurePanel(elytraWaitlist, ['waitlist_join:elytra', 'join_waitlist'], waitlistPanel('elytra', guildConfig(guild.id)?.waitlistRoleId));
+  if (trapWaitlist) await ensurePanel(trapWaitlist, ['waitlist_join:trap', 'join_waitlist'], waitlistPanel('trap', guildConfig(guild.id)?.waitlistRoleId));
   const testerMessage = await ensurePanel(tester, ['queue_action:elytra:open', 'queue_toggle:elytra'], testerPanel(guild.id));
   let configPinned = testerMessage.pinned;
   if (!configPinned) {
@@ -967,15 +968,17 @@ async function applyQueueAction(interaction, kit, action) {
   store.save({ source: `queue-${action}` });
   await interaction.update(testerPanel(interaction.guild.id));
   await refreshWaitlistPanel(interaction.guild).catch((error) => console.warn('Waitlist paneli yenilenemedi:', error.message));
-  const join = configuredChannel(interaction.guild, kit === 'elytra' ? 'elytraWaitlistPanelChannelId' : 'trapWaitlistPanelChannelId') || configuredChannel(interaction.guild, 'waitlistPanelChannelId');
+  const join = waitlistPanelChannel(interaction.guild, kit);
   const announcement = configuredChannel(interaction.guild, 'announcementChannelId');
-  const panelAnnouncement = (action === 'open' || action === 'close') && join ? join : announcement;
+  const panelAnnouncement = shouldPing && join ? join : announcement;
   const role = configuredRole(interaction.guild, 'waitlistRoleId');
   const actionText = action === 'open' ? 'açıldı' : action === 'pause' ? 'duraklatıldı' : 'kapatıldı';
   const icon = action === 'open' ? '🟢' : action === 'pause' ? '🟡' : '🔴';
   if (panelAnnouncement) await panelAnnouncement.send({
     content: `${shouldPing && role ? `<@&${role.id}>\n` : ''}${icon} **${kitName(kit)} sırası ${actionText}!**\nTester: <@${interaction.user.id}>\nSunucu: \`${store.get().serverAddress || 'Ayarlanmadı'}\`${action === 'open' && join ? `\nKatılım: <#${join.id}>` : ''}`,
     allowedMentions: { roles: shouldPing && role ? [role.id] : [], users: [interaction.user.id] }
+  }).then((message) => {
+    if (shouldPing && join && message.channelId === join.id) setTimeout(() => message.delete().catch(() => {}), 8000);
   }).catch((error) => console.warn('Sıra duyurusu gönderilemedi:', error.message));
   await sendAudit(interaction.guild, `${icon} ${kitName(kit)} sırası ${actionText}`, `İşlemi yapan: <@${interaction.user.id}>\nBekleyen: **${current.entries.length}**`, action === 'close' ? 0xED4245 : action === 'pause' ? 0xFEE75C : 0x57F287);
   const ticket = action === 'open' ? await advanceQueue(interaction.guild, kit).catch((error) => {
